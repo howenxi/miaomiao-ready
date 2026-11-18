@@ -25,6 +25,7 @@ internal static class Program
         }
         if (args.Length == 2 && args[0] == "--self-test")
         {
+            Setup.SelfTesting = true;
             Application.EnableVisualStyles();
             Setup.Root = Path.GetFullPath(args[1]);
             Setup.Prepare(); Setup.CopyCursors();
@@ -61,6 +62,7 @@ internal static class Setup
     internal static string Backup { get { return Path.Combine(Root, "original.xml"); } }
     const string CursorKey = @"Control Panel\Cursors";
     internal static bool Changed;
+    internal static bool SelfTesting;
     internal static string SizedFolder;
     internal static int PreviewPixels = 20;
     internal static string CursorPath(int index)
@@ -118,6 +120,13 @@ internal static class Setup
     static extern bool SystemParametersInfo(uint action, uint param, IntPtr value, uint flags);
     [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     internal static extern IntPtr LoadCursorFromFile(string path);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    static extern IntPtr LoadImage(IntPtr instance, string path, uint type, int width, int height, uint flags);
+    [DllImport("user32.dll")] static extern int GetSystemMetrics(int index);
+    internal static IntPtr LoadPreviewCursor(string path)
+    {
+        return LoadImage(IntPtr.Zero, path, 2, GetSystemMetrics(13), GetSystemMetrics(14), 0x10);
+    }
     [DllImport("user32.dll")] internal static extern bool DestroyCursor(IntPtr cursor);
 
     internal static Stream Resource(string name) { return Assembly.GetExecutingAssembly().GetManifestResourceStream(name); }
@@ -268,10 +277,13 @@ internal sealed class InstallerWindow : Form
     readonly Button done = new AntButton { Primary = true }, restore = new AntButton();
     readonly Button closeWindow = new AntButton();
     readonly Panel sizeControls = new Panel();
-    readonly ThemeSizeSlider sizeSlider = new ThemeSizeSlider { Minimum = 12, Maximum = 30, Value = 20, SmallChange = 1, LargeChange = 2 };
+    readonly AntButton[] presets = { new AntButton { Text = "小" }, new AntButton { Text = "中" }, new AntButton { Text = "大" } };
+    readonly int[] presetPixels = {12, 20, 30};
+    int selectedPixels = 20;
+    bool previewBusy;
+    string previewError;
     readonly Label sizeLabel = new Label();
     readonly Button applySize = new AntButton { Primary = true, Text = "应用大小" };
-    readonly System.Windows.Forms.Timer previewTimer = new System.Windows.Forms.Timer { Interval = 220 };
     int appliedPixels = 20;
     readonly System.Windows.Forms.Timer timer = new System.Windows.Forms.Timer();
     readonly Image runner;
@@ -334,16 +346,46 @@ internal sealed class InstallerWindow : Form
         brand.Font = new Font(Font.FontFamily, 21 * displayScale, FontStyle.Bold);
         sizeControls.SetBounds(D(30), D(173), D(600), D(52));
         sizeLabel.SetBounds(0, D(13), D(145), D(28));
-        sizeSlider.SetBounds(D(145), D(9), D(300), D(36));
         applySize.SetBounds(D(465), D(7), D(135), D(37));
-        sizeControls.Controls.Add(sizeLabel); sizeControls.Controls.Add(sizeSlider); sizeControls.Controls.Add(applySize);
+        sizeControls.Controls.Add(sizeLabel); sizeControls.Controls.Add(applySize);
+        for (int i = 0; i < presets.Length; i++)
+        {
+            int chosenPreset = i;
+            presets[i].SetBounds(D(145 + i * 96), D(7), D(86), D(37));
+            presets[i].Click += delegate
+            {
+                if (previewBusy || selectedPixels == presetPixels[chosenPreset]) return;
+                previewBusy = true; applySize.Enabled = false;
+                foreach (var button in presets) button.Enabled = false;
+                subtitle.Text = "正在准备“" + presets[chosenPreset].Text + "”尺寸预览…";
+                int size = presetPixels[chosenPreset];
+                System.Threading.Tasks.Task.Run(delegate { Setup.PrepareSize(size); }).ContinueWith(task =>
+                {
+                    if (IsDisposed || !IsHandleCreated) return;
+                    BeginInvoke(new Action(delegate
+                    {
+                        if (IsDisposed) return;
+                        try
+                        {
+                            if (task.IsFaulted) throw task.Exception.GetBaseException();
+                            selectedPixels = size; RebuildSizePreview();
+                        }
+                        catch (Exception error) { previewError = error.ToString(); if (!Setup.SelfTesting) MessageBox.Show(this, error.Message, "预览未完成"); }
+                        finally
+                        {
+                            previewBusy = false;
+                            foreach (var button in presets) button.Enabled = true;
+                            RefreshPresets();
+                        }
+                    }));
+                });
+            };
+            sizeControls.Controls.Add(presets[i]);
+        }
         sizeControls.Visible = false; Controls.Add(sizeControls);
-        sizeSlider.ValueChanged += delegate { sizeLabel.Text = "指针大小  " + sizeSlider.Value + " px"; applySize.Enabled = sizeSlider.Value != appliedPixels; previewTimer.Stop(); previewTimer.Start(); };
-        previewTimer.Tick += delegate { previewTimer.Stop(); UpdateSizePreview(); };
         applySize.Click += delegate
         {
-            previewTimer.Stop();
-            try { Setup.ApplySize(sizeSlider.Value); appliedPixels = sizeSlider.Value; applySize.Enabled = false; subtitle.Text = "大小已应用。移到下方区域试用鼠标效果。"; }
+            try { Setup.ApplySize(selectedPixels); appliedPixels = selectedPixels; RefreshPresets(); subtitle.Text = "大小已应用。移到下方区域试用鼠标效果。"; }
             catch (Exception error) { MessageBox.Show(this, error.Message, "大小应用未完成"); }
         };
     }
@@ -470,28 +512,31 @@ internal sealed class InstallerWindow : Form
         scenarios.Top += D(64); done.Top += D(64); restore.Top += D(64);
         int desiredHeight = ClientSize.Height + D(64);
         ClientSize = new Size(ClientSize.Width, desiredHeight);
-        appliedPixels = Setup.PreviewPixels; sizeSlider.Value = appliedPixels;
-        sizeLabel.Text = "指针大小  " + appliedPixels + " px"; applySize.Enabled = false; sizeControls.Visible = true;
+        appliedPixels = Setup.PreviewPixels; selectedPixels = appliedPixels;
+        RefreshPresets(); sizeControls.Visible = true;
     }
-    void UpdateSizePreview()
+    void RefreshPresets()
     {
-        try
-        {
-            Setup.PrepareSize(sizeSlider.Value);
+        sizeLabel.Text = "指针大小";
+        for (int i = 0; i < presets.Length; i++) { presets[i].Primary = selectedPixels == presetPixels[i]; presets[i].Invalidate(); }
+        applySize.Enabled = !previewBusy && selectedPixels != appliedPixels;
+    }
+    void RebuildSizePreview()
+    {
             while (scenarios.Controls.Count > 0) scenarios.Controls[0].Dispose();
             scenarios.Controls.Clear(); BuildScenarios();
             subtitle.Text = "当前为试用大小，点击“应用大小”后更新系统鼠标。";
-        }
-        catch (Exception error) { previewTimer.Stop(); MessageBox.Show(this, error.Message, "预览未完成"); }
     }
     internal void Preview() { Finish(); }
     internal void VerifySizePreviews()
     {
-        sizeSlider.VerifyInteraction();
-        foreach (int size in new int[] {12, 30, 20})
+        foreach (int index in new int[] {0, 2, 1})
         {
-            sizeSlider.Value = size; previewTimer.Stop(); UpdateSizePreview();
-            if (Setup.PreviewPixels != size || scenarios.Controls.Count == 0) throw new IOException("大小预览检查失败");
+            presets[index].PerformClick();
+            DateTime deadline = DateTime.UtcNow.AddSeconds(30);
+            while (previewBusy && DateTime.UtcNow < deadline) { Application.DoEvents(); Thread.Sleep(10); }
+            if (previewError != null) throw new IOException(previewError);
+            if (previewBusy || Setup.PreviewPixels != presetPixels[index] || scenarios.Controls.Count == 0) throw new IOException("尺寸选项预览检查失败：期望" + presetPixels[index] + "，实际" + Setup.PreviewPixels + "，忙碌" + previewBusy + "，卡片" + scenarios.Controls.Count);
         }
     }
     internal void PreviewLoading() { working = false; progress = 55; step.Text = "安放两只小猫"; percent.Text = "55%"; }
@@ -503,11 +548,12 @@ internal sealed class InstallerWindow : Form
             int index = i;
             var card = new ThemeCard { BackColor = Color.FromArgb(252, 246, 237) };
             card.SetBounds(D(i % 2 * 306), D(i / 2 * 100), D(294), D(90));
-            IntPtr handle = Setup.LoadCursorFromFile(Setup.CursorPath(i));
+            IntPtr handle = Setup.LoadPreviewCursor(Setup.CursorPath(i));
+            if (handle == IntPtr.Zero) throw new IOException("无法加载试用指针");
             var cursor = new Cursor(handle); card.Cursor = cursor;
             card.Disposed += delegate { cursor.Dispose(); Setup.DestroyCursor(handle); };
-            Image thumbnail;
-            using (var original = Setup.Picture(i)) thumbnail = ResizePicture(original, D(Setup.PreviewPixels * 2), true);
+            Image thumbnail = new Bitmap(cursor.Size.Width, cursor.Size.Height);
+            using (var graphics = Graphics.FromImage(thumbnail)) cursor.Draw(graphics, new Rectangle(Point.Empty, cursor.Size));
             var picture = new PictureBox { Image = thumbnail, SizeMode = PictureBoxSizeMode.CenterImage, Cursor = cursor };
             picture.SetBounds(D(10), D(6), D(82), D(82)); card.Controls.Add(picture);
             picture.Disposed += delegate { picture.Image.Dispose(); };
@@ -537,7 +583,7 @@ internal sealed class InstallerWindow : Form
     }
     protected override void Dispose(bool disposing)
     {
-        if (disposing) { timer.Dispose(); previewTimer.Dispose(); runner.Dispose(); }
+        if (disposing) { timer.Dispose(); runner.Dispose(); }
         base.Dispose(disposing);
     }
 }
@@ -545,113 +591,6 @@ internal sealed class InstallerWindow : Form
 internal sealed class SmoothPanel : Panel
 {
     internal SmoothPanel() { DoubleBuffered = true; ResizeRedraw = true; }
-}
-
-internal sealed class ThemeSizeSlider : Control
-{
-    int currentValue = 20;
-    bool dragging;
-    internal int Minimum = 12, Maximum = 30, SmallChange = 1, LargeChange = 2;
-    internal event EventHandler ValueChanged;
-    internal int Value
-    {
-        get { return currentValue; }
-        set
-        {
-            int next = Math.Max(Minimum, Math.Min(Maximum, value));
-            if (next == currentValue) return;
-            currentValue = next;
-            Invalidate();
-            if (ValueChanged != null) ValueChanged(this, EventArgs.Empty);
-        }
-    }
-    internal ThemeSizeSlider()
-    {
-        SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw | ControlStyles.Selectable, true);
-        TabStop = true;
-        AccessibleName = "指针大小";
-        AccessibleRole = AccessibleRole.Slider;
-    }
-    float Inset { get { return Math.Max(6, Height / 5f) + 3; } }
-    void SetFromPosition(int x)
-    {
-        float width = Math.Max(1, Width - Inset * 2);
-        Value = Minimum + (int)Math.Round((Maximum - Minimum) * Math.Max(0, Math.Min(1, (x - Inset) / width)));
-    }
-    protected override void OnMouseDown(MouseEventArgs e)
-    {
-        base.OnMouseDown(e);
-        if (e.Button != MouseButtons.Left) return;
-        Focus(); dragging = true; Capture = true; SetFromPosition(e.X);
-    }
-    protected override void OnMouseMove(MouseEventArgs e)
-    {
-        base.OnMouseMove(e); if (dragging) SetFromPosition(e.X);
-    }
-    protected override void OnMouseUp(MouseEventArgs e)
-    {
-        base.OnMouseUp(e);
-        if (e.Button != MouseButtons.Left) return;
-        if (dragging) SetFromPosition(e.X);
-        dragging = false; Capture = false;
-    }
-    protected override void OnMouseCaptureChanged(EventArgs e)
-    {
-        base.OnMouseCaptureChanged(e); if (!Capture) dragging = false;
-    }
-    protected override void OnMouseWheel(MouseEventArgs e)
-    {
-        base.OnMouseWheel(e); Value += e.Delta / 120 * SmallChange;
-    }
-    protected override bool IsInputKey(Keys keyData)
-    {
-        Keys key = keyData & Keys.KeyCode;
-        return key == Keys.Left || key == Keys.Right || key == Keys.Up || key == Keys.Down || base.IsInputKey(keyData);
-    }
-    protected override void OnKeyDown(KeyEventArgs e)
-    {
-        base.OnKeyDown(e);
-        switch (e.KeyCode)
-        {
-            case Keys.Left: case Keys.Down: Value -= SmallChange; break;
-            case Keys.Right: case Keys.Up: Value += SmallChange; break;
-            case Keys.PageDown: Value -= LargeChange; break;
-            case Keys.PageUp: Value += LargeChange; break;
-            case Keys.Home: Value = Minimum; break;
-            case Keys.End: Value = Maximum; break;
-            default: return;
-        }
-        e.Handled = true;
-    }
-    protected override void OnGotFocus(EventArgs e) { base.OnGotFocus(e); Invalidate(); }
-    protected override void OnLostFocus(EventArgs e) { base.OnLostFocus(e); Invalidate(); }
-    internal void VerifyInteraction()
-    {
-        int previous = Value;
-        OnMouseDown(new MouseEventArgs(MouseButtons.Left, 1, 0, Height / 2, 0));
-        if (Value != Minimum) throw new IOException("滑块起点检查失败");
-        for (int x = 0; x <= Width; x += 3) OnMouseMove(new MouseEventArgs(MouseButtons.Left, 0, x, Height / 2, 0));
-        OnMouseUp(new MouseEventArgs(MouseButtons.Left, 1, Width, Height / 2, 0));
-        if (Value != Maximum) throw new IOException("滑块拖动检查失败");
-        OnMouseWheel(new MouseEventArgs(MouseButtons.None, 0, Width / 2, Height / 2, -120));
-        if (Value != Maximum - SmallChange) throw new IOException("滑块滚轮检查失败");
-        OnKeyDown(new KeyEventArgs(Keys.Home));
-        OnKeyDown(new KeyEventArgs(Keys.Right));
-        if (Value != Minimum + SmallChange) throw new IOException("滑块键盘检查失败");
-        Value = previous;
-    }
-    protected override void OnPaint(PaintEventArgs e)
-    {
-        e.Graphics.Clear(Parent.BackColor);
-        e.Graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
-        float radius = Math.Max(6, Height / 5f), left = radius + 3, right = Width - left;
-        float center = Height / 2f, x = left + (right - left) * (Value - Minimum) / (Maximum - Minimum);
-        using (var track = new Pen(Color.FromArgb(232, 214, 195), 4)) e.Graphics.DrawLine(track, left, center, right, center);
-        using (var fill = new Pen(Color.FromArgb(174, 105, 49), 4)) e.Graphics.DrawLine(fill, left, center, x, center);
-        using (var brush = new SolidBrush(Color.FromArgb(255, 252, 246))) e.Graphics.FillEllipse(brush, x - radius, center - radius, radius * 2, radius * 2);
-        using (var pen = new Pen(Color.FromArgb(174, 105, 49), 1.5f)) e.Graphics.DrawEllipse(pen, x - radius, center - radius, radius * 2, radius * 2);
-        if (Focused && ShowFocusCues) ControlPaint.DrawFocusRectangle(e.Graphics, Rectangle.Inflate(ClientRectangle, -2, -2));
-    }
 }
 
 internal sealed class BrandHeader : Panel

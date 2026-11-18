@@ -67,6 +67,7 @@ $source = $source.Replace('cursors-v1', ('cursors-'+$digest))
 $source = $source.Replace("for (int i = 0; i < Names.Length; i++)`r`n        {", "for (int i = 0; i < Names.Length; i++)`r`n        {`r`n            if (!Selected[i]) continue;")
 $source = $source.Replace("for (int i = 0; i < Names.Length; i++)`n        {", "for (int i = 0; i < Names.Length; i++)`n        {`n            if (!Selected[i]) continue;")
 $source = $source.Replace('string path = Path.Combine(Root, "cursors-', 'if (!Selected[i]) continue; string path = Path.Combine(Root, "cursors-')
+$source = $source.Replace('string path = CursorPath(i);', 'if (!Selected[i]) continue; string path = CursorPath(i);')
 $source = $source.Replace('for (int i = 0; i < 8; i++)', 'int visibleIndex = 0; for (int i = 0; i < 8; i++)')
 $source = $source.Replace('int index = i;', 'if (!Setup.Selected[i]) continue; int layoutIndex = visibleIndex++; int index = i;')
 $source = $source.Replace('D(i % 2 * 306), D(i / 2 * 100)', 'D(layoutIndex % 2 * 306), D(layoutIndex / 2 * 100)')
@@ -87,6 +88,19 @@ for ($i = 0; $i -lt 8; $i++) {
     $arguments += '/resource:'+(Join-Path $build ($resourceIndex.ToString()+'.png'))+',picture'+$i
 }
 $arguments += '/resource:'+(Join-Path $build 'brand.png')+',brand'
+$theme = New-Object Xml.XmlDocument
+$themeRoot = $theme.CreateElement('theme'); [void]$theme.AppendChild($themeRoot)
+for ($i=0; $i -lt 8; $i++) {
+    if (-not $selected[$i]) { continue }
+    $element=$theme.CreateElement('cursor')
+    $element.SetAttribute('index',$i.ToString())
+    $element.SetAttribute('x',([int]$mapping[$ids[$i]].hotspot[0]).ToString())
+    $element.SetAttribute('y',([int]$mapping[$ids[$i]].hotspot[1]).ToString())
+    [void]$themeRoot.AppendChild($element)
+}
+$theme.Save((Join-Path $build 'theme.xml'))
+$arguments += '/resource:'+(Join-Path $build 'theme.xml')+',theme'
+$arguments += Join-Path $PSScriptRoot 'CursorEncoder.cs'
 $arguments += $sourcePath
 & $compiler $arguments
 if ($LASTEXITCODE -ne 0) { throw '编译失败。' }

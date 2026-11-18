@@ -34,3 +34,5 @@ Remove-Item Env:MIAOMIAO_PREVIEW_SCALE
 运行 EXE 时 PowerShell 可能立即返回，使用 Start-Process -PassThru -Wait 或等价进程等待方式，核对退出码及 passed.txt。100%、125%、150% 适配应实际查看生成截图。程序是系统 DPI 感知，跨不同缩放显示器时重新启动以适配。
 
 每个 cursor 可选 contentScale（0.3～1，默认1）。文字输入建议先用0.65，热点采用同一缩放变换，透明画布大小保持不变。
+
+构建时另嵌入theme.xml，保存选中类型的原图热点，并把CursorEncoder编译进EXE供运行时调大小。请通过build-windows.ps1编译，单独只编译Program.cs不再具备完整资源和依赖。

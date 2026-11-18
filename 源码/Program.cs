@@ -17,7 +17,7 @@ internal static class Program
         {
             Setup.Root = Path.GetFullPath(args[1]);
             Setup.Prepare(); Setup.CopyCursors(); Setup.SaveBackup();
-            try { Setup.Apply(); }
+            try { Setup.Apply(); Setup.ApplySize(12); Setup.ApplySize(30); }
             finally { Setup.Restore(); }
             Setup.VerifyRestored();
             File.WriteAllText(Path.Combine(Setup.Root, "integration-passed.txt"), "Applied all eight cursors, refreshed Windows, restored original values, refreshed Windows again, verified registry values and types match backup.");
@@ -35,6 +35,7 @@ internal static class Program
                 using (var image = new Bitmap(form.Width, form.Height))
                 { form.DrawToBitmap(image, new Rectangle(Point.Empty, form.Size)); image.Save(Path.Combine(Setup.Root, "loading.png")); }
                 form.Preview(); Application.DoEvents();
+                form.VerifySizePreviews();
                 using (var image = new Bitmap(form.Width, form.Height))
                 { form.DrawToBitmap(image, new Rectangle(Point.Empty, form.Size)); image.Save(Path.Combine(Setup.Root, "preview.png")); }
             }
@@ -60,6 +61,58 @@ internal static class Setup
     internal static string Backup { get { return Path.Combine(Root, "original.xml"); } }
     const string CursorKey = @"Control Panel\Cursors";
     internal static bool Changed;
+    internal static string SizedFolder;
+    internal static int PreviewPixels = 20;
+    internal static string CursorPath(int index)
+    {
+        return Path.Combine(SizedFolder ?? Path.Combine(Root, "cursors-v1"), Names[index] + ".cur");
+    }
+    internal static void PrepareSize(int pixels)
+    {
+        if (pixels < 12 || pixels > 30) throw new ArgumentOutOfRangeException("pixels");
+        string folder = Path.Combine(Root, "cursors-v1", "size-" + pixels);
+        if (!Directory.Exists(folder))
+        {
+            string staging = folder + "." + Guid.NewGuid().ToString("N");
+            Directory.CreateDirectory(staging);
+            try
+            {
+                XDocument theme;
+                using (var stream = Resource("theme")) theme = XDocument.Load(stream);
+                foreach (var item in theme.Root.Elements("cursor"))
+                {
+                    int index = (int)item.Attribute("index");
+                    string png = Path.Combine(staging, index + ".png");
+                    using (var source = Resource("picture" + index))
+                    using (var target = File.Create(png)) source.CopyTo(target);
+                    string path = Path.Combine(staging, Names[index] + ".cur");
+                    CursorEncoder.ConvertScaled(png, path, (int)item.Attribute("x"), (int)item.Attribute("y"), pixels / 30f);
+                    IntPtr handle = LoadCursorFromFile(path);
+                    if (handle == IntPtr.Zero) throw new IOException("预览指针生成失败");
+                    DestroyCursor(handle); File.Delete(png);
+                }
+                Directory.Move(staging, folder);
+            }
+            finally { if (Directory.Exists(staging)) Directory.Delete(staging, true); }
+        }
+        SizedFolder = folder; PreviewPixels = pixels;
+    }
+    internal static void ApplySize(int pixels)
+    {
+        var previous = new XElement("cursorBackup");
+        foreach (string role in Roles) previous.Add(Capture(CursorKey, role));
+        previous.Add(Capture(CursorKey, "")); previous.Add(Capture(CursorKey, "Scheme Source"));
+        previous.Add(Capture(CursorKey + @"\Schemes", "喵喵就位"));
+        try
+        {
+            PrepareSize(pixels); Apply();
+            string setting = Path.Combine(Root, "cursors-v1", "size.txt");
+            string temp = setting + ".tmp";
+            File.WriteAllText(temp, pixels.ToString());
+            if (File.Exists(setting)) File.Replace(temp, setting, null); else File.Move(temp, setting);
+        }
+        catch { RestoreValues(new XDocument(previous)); throw; }
+    }
     [DllImport("user32.dll", EntryPoint = "SystemParametersInfoW", ExactSpelling = true, SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     static extern bool SystemParametersInfo(uint action, uint param, IntPtr value, uint flags);
@@ -135,12 +188,18 @@ internal static class Setup
     }
     internal static void Apply()
     {
+        if (SizedFolder == null)
+        {
+            int saved;
+            string setting = Path.Combine(Root, "cursors-v1", "size.txt");
+            if (File.Exists(setting) && int.TryParse(File.ReadAllText(setting), out saved) && saved >= 12 && saved <= 30) PrepareSize(saved);
+        }
         Changed = true;
         using (var key = Registry.CurrentUser.CreateSubKey(CursorKey))
         {
             for (int i = 0; i < Roles.Length; i++)
             {
-                string path = Path.Combine(Root, "cursors-v1", Names[i] + ".cur");
+                string path = CursorPath(i);
                 IntPtr handle = LoadCursorFromFile(path);
                 if (handle == IntPtr.Zero) throw new IOException("指针文件无法加载：" + Names[i]);
                 DestroyCursor(handle);
@@ -175,7 +234,11 @@ internal static class Setup
     internal static void Restore()
     {
         if (!File.Exists(Backup)) throw new IOException("还没有安装备份，无需恢复。");
-        var document = XDocument.Load(Backup);
+        RestoreValues(XDocument.Load(Backup));
+        Changed = false;
+    }
+    static void RestoreValues(XDocument document)
+    {
         foreach (var element in document.Root.Elements("value"))
         {
             string path = (string)element.Attribute("path");
@@ -194,7 +257,6 @@ internal static class Setup
             }
         }
         Reload();
-        Changed = false;
     }
 }
 
@@ -205,6 +267,12 @@ internal sealed class InstallerWindow : Form
     readonly Panel loading = new SmoothPanel(), scenarios = new Panel();
     readonly Button done = new AntButton { Primary = true }, restore = new AntButton();
     readonly Button closeWindow = new AntButton();
+    readonly Panel sizeControls = new Panel();
+    readonly TrackBar sizeSlider = new ThemeSizeSlider { Minimum = 12, Maximum = 30, Value = 20, TickStyle = TickStyle.None, SmallChange = 1, LargeChange = 2 };
+    readonly Label sizeLabel = new Label();
+    readonly Button applySize = new AntButton { Primary = true, Text = "应用大小" };
+    readonly System.Windows.Forms.Timer previewTimer = new System.Windows.Forms.Timer { Interval = 220 };
+    int appliedPixels = 20;
     readonly System.Windows.Forms.Timer timer = new System.Windows.Forms.Timer();
     readonly Image runner;
     readonly float displayScale;
@@ -222,10 +290,12 @@ internal sealed class InstallerWindow : Form
         using (var graphics = CreateGraphics()) displayScale = graphics.DpiX / 96f;
         string previewScale = Environment.GetEnvironmentVariable("MIAOMIAO_PREVIEW_SCALE");
         if (!string.IsNullOrEmpty(previewScale)) displayScale = float.Parse(previewScale, System.Globalization.CultureInfo.InvariantCulture);
+        displayScale = Math.Min(displayScale, (Screen.FromControl(this).WorkingArea.Width - 32) / 660f);
+        displayScale = Math.Min(displayScale, (Screen.FromControl(this).WorkingArea.Height - 32) / 754f);
         Font = new Font("Microsoft YaHei", 10);
         BackColor = Color.FromArgb(255, 250, 244); ForeColor = Ink;
         ClientSize = new Size(660, 424); FormBorderStyle = FormBorderStyle.None;
-        AutoScroll = true;
+        AutoScroll = false;
         MaximizeBox = false; StartPosition = FormStartPosition.CenterScreen;
         title.SetBounds(30, 28, 600, 40); title.Font = new Font(Font.FontFamily, 19, FontStyle.Bold);
         title.Text = restoring ? "小猫正在交接…" : "小猫正在赶来…";
@@ -262,6 +332,20 @@ internal sealed class InstallerWindow : Form
         Font = new Font("Microsoft YaHei", 10 * displayScale);
         title.Font = new Font(Font.FontFamily, 19 * displayScale, FontStyle.Bold);
         brand.Font = new Font(Font.FontFamily, 21 * displayScale, FontStyle.Bold);
+        sizeControls.SetBounds(D(30), D(173), D(600), D(52));
+        sizeLabel.SetBounds(0, D(13), D(145), D(28));
+        sizeSlider.SetBounds(D(145), D(9), D(300), D(36));
+        applySize.SetBounds(D(465), D(7), D(135), D(37));
+        sizeControls.Controls.Add(sizeLabel); sizeControls.Controls.Add(sizeSlider); sizeControls.Controls.Add(applySize);
+        sizeControls.Visible = false; Controls.Add(sizeControls);
+        sizeSlider.ValueChanged += delegate { sizeLabel.Text = "指针大小  " + sizeSlider.Value + " px"; applySize.Enabled = sizeSlider.Value != appliedPixels; previewTimer.Stop(); previewTimer.Start(); };
+        previewTimer.Tick += delegate { previewTimer.Stop(); UpdateSizePreview(); };
+        applySize.Click += delegate
+        {
+            previewTimer.Stop();
+            try { Setup.ApplySize(sizeSlider.Value); appliedPixels = sizeSlider.Value; applySize.Enabled = false; subtitle.Text = "大小已应用。移到下方区域试用鼠标效果。"; }
+            catch (Exception error) { MessageBox.Show(this, error.Message, "大小应用未完成"); }
+        };
     }
     [DllImport("user32.dll")] static extern bool ReleaseCapture();
     [DllImport("user32.dll")] static extern IntPtr SendMessage(IntPtr window, uint message, IntPtr wParam, IntPtr lParam);
@@ -383,8 +467,32 @@ internal sealed class InstallerWindow : Form
         title.Text = "已完成，请试用鼠标效果";
         subtitle.Text = "把鼠标移到下面的区域，看看两只小猫的表现。";
         BuildScenarios(); scenarios.Visible = true; done.Visible = true; restore.Visible = true;
+        scenarios.Top += D(64); done.Top += D(64); restore.Top += D(64);
+        int desiredHeight = ClientSize.Height + D(64);
+        ClientSize = new Size(ClientSize.Width, desiredHeight);
+        appliedPixels = Setup.PreviewPixels; sizeSlider.Value = appliedPixels;
+        sizeLabel.Text = "指针大小  " + appliedPixels + " px"; applySize.Enabled = false; sizeControls.Visible = true;
+    }
+    void UpdateSizePreview()
+    {
+        try
+        {
+            Setup.PrepareSize(sizeSlider.Value);
+            while (scenarios.Controls.Count > 0) scenarios.Controls[0].Dispose();
+            scenarios.Controls.Clear(); BuildScenarios();
+            subtitle.Text = "当前为试用大小，点击“应用大小”后更新系统鼠标。";
+        }
+        catch (Exception error) { previewTimer.Stop(); MessageBox.Show(this, error.Message, "预览未完成"); }
     }
     internal void Preview() { Finish(); }
+    internal void VerifySizePreviews()
+    {
+        foreach (int size in new int[] {12, 30, 20})
+        {
+            sizeSlider.Value = size; previewTimer.Stop(); UpdateSizePreview();
+            if (Setup.PreviewPixels != size || scenarios.Controls.Count == 0) throw new IOException("大小预览检查失败");
+        }
+    }
     internal void PreviewLoading() { working = false; progress = 55; step.Text = "安放两只小猫"; percent.Text = "55%"; }
     void BuildScenarios()
     {
@@ -394,11 +502,11 @@ internal sealed class InstallerWindow : Form
             int index = i;
             var card = new ThemeCard { BackColor = Color.FromArgb(252, 246, 237) };
             card.SetBounds(D(i % 2 * 306), D(i / 2 * 100), D(294), D(90));
-            IntPtr handle = Setup.LoadCursorFromFile(Path.Combine(Setup.Root, "cursors-v1", Setup.Names[i] + ".cur"));
+            IntPtr handle = Setup.LoadCursorFromFile(Setup.CursorPath(i));
             var cursor = new Cursor(handle); card.Cursor = cursor;
             card.Disposed += delegate { cursor.Dispose(); Setup.DestroyCursor(handle); };
             Image thumbnail;
-            using (var original = Setup.Picture(i)) thumbnail = ResizePicture(original, D(64), true);
+            using (var original = Setup.Picture(i)) thumbnail = ResizePicture(original, D(Setup.PreviewPixels * 2), true);
             var picture = new PictureBox { Image = thumbnail, SizeMode = PictureBoxSizeMode.CenterImage, Cursor = cursor };
             picture.SetBounds(D(10), D(6), D(82), D(82)); card.Controls.Add(picture);
             picture.Disposed += delegate { picture.Image.Dispose(); };
@@ -428,7 +536,7 @@ internal sealed class InstallerWindow : Form
     }
     protected override void Dispose(bool disposing)
     {
-        if (disposing) { timer.Dispose(); runner.Dispose(); }
+        if (disposing) { timer.Dispose(); previewTimer.Dispose(); runner.Dispose(); }
         base.Dispose(disposing);
     }
 }
@@ -436,6 +544,26 @@ internal sealed class InstallerWindow : Form
 internal sealed class SmoothPanel : Panel
 {
     internal SmoothPanel() { DoubleBuffered = true; ResizeRedraw = true; }
+}
+
+internal sealed class ThemeSizeSlider : TrackBar
+{
+    internal ThemeSizeSlider()
+    {
+        SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer, true);
+    }
+    protected override void OnValueChanged(EventArgs e) { base.OnValueChanged(e); Invalidate(); }
+    protected override void OnPaint(PaintEventArgs e)
+    {
+        e.Graphics.Clear(Parent.BackColor);
+        e.Graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+        float radius = Math.Max(6, Height / 5f), left = radius + 3, right = Width - left;
+        float center = Height / 2f, x = left + (right - left) * (Value - Minimum) / (Maximum - Minimum);
+        using (var track = new Pen(Color.FromArgb(232, 214, 195), 4)) e.Graphics.DrawLine(track, left, center, right, center);
+        using (var fill = new Pen(Color.FromArgb(174, 105, 49), 4)) e.Graphics.DrawLine(fill, left, center, x, center);
+        using (var brush = new SolidBrush(Color.FromArgb(255, 252, 246))) e.Graphics.FillEllipse(brush, x - radius, center - radius, radius * 2, radius * 2);
+        using (var pen = new Pen(Color.FromArgb(174, 105, 49), 1.5f)) e.Graphics.DrawEllipse(pen, x - radius, center - radius, radius * 2, radius * 2);
+    }
 }
 
 internal sealed class BrandHeader : Panel
@@ -523,6 +651,7 @@ internal sealed class AntButton : Button
         float unit = Height / 37f;
         Color blue = Color.FromArgb(174, 105, 49), hover = Color.FromArgb(192, 125, 66), active = Color.FromArgb(143, 80, 34);
         Color state = pressed ? active : hovered ? hover : blue;
+        if (!Enabled) state = Color.FromArgb(205, 184, 163);
         var rectangle = new RectangleF(1, 1, Width - 3, Height - 3);
         using (var shape = AntShape.Rounded(rectangle, 6 * unit))
         using (Brush brush = Primary ? (Brush)new System.Drawing.Drawing2D.LinearGradientBrush(rectangle, Color.FromArgb(Math.Min(255, state.R + 16), Math.Min(255, state.G + 14), Math.Min(255, state.B + 12)), state, 90f) : new SolidBrush(Color.FromArgb(255, 252, 246)))

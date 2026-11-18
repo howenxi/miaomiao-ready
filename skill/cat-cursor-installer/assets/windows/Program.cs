@@ -292,7 +292,7 @@ internal sealed class InstallerWindow : Form
         if (!scenarios.Visible) return;
         using (var pen = new Pen(Color.FromArgb(230, 208, 183))) e.Graphics.DrawLine(pen, D(30), done.Top - D(18), ClientSize.Width - D(30), done.Top - D(18));
     }
-    static Image ResizePicture(Image original, int size)
+    static Image ResizePicture(Image original, int size, bool trimTransparent = false)
     {
         var bitmap = new Bitmap(size, size, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
         using (var graphics = Graphics.FromImage(bitmap))
@@ -301,9 +301,24 @@ internal sealed class InstallerWindow : Form
             graphics.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
             graphics.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality;
             attributes.SetWrapMode(System.Drawing.Drawing2D.WrapMode.TileFlipXY);
-            float scale = Math.Min((float)size / original.Width, (float)size / original.Height);
-            int width = (int)Math.Round(original.Width * scale), height = (int)Math.Round(original.Height * scale);
-            graphics.DrawImage(original, new Rectangle((size - width) / 2, (size - height) / 2, width, height), 0, 0, original.Width, original.Height, GraphicsUnit.Pixel, attributes);
+            Rectangle bounds = new Rectangle(0, 0, original.Width, original.Height);
+            if (trimTransparent)
+            {
+                using (var pixels = new Bitmap(original))
+                {
+                    int left = pixels.Width, top = pixels.Height, right = -1, bottom = -1;
+                    for (int y = 0; y < pixels.Height; y++) for (int x = 0; x < pixels.Width; x++)
+                    {
+                        if (pixels.GetPixel(x, y).A < 80) continue;
+                        left = Math.Min(left, x); right = Math.Max(right, x);
+                        top = Math.Min(top, y); bottom = Math.Max(bottom, y);
+                    }
+                    if (right >= left) bounds = Rectangle.FromLTRB(left, top, right + 1, bottom + 1);
+                }
+            }
+            float scale = Math.Min((float)size / bounds.Width, (float)size / bounds.Height);
+            int width = (int)Math.Round(bounds.Width * scale), height = (int)Math.Round(bounds.Height * scale);
+            graphics.DrawImage(original, new Rectangle((size - width) / 2, (size - height) / 2, width, height), bounds.X, bounds.Y, bounds.Width, bounds.Height, GraphicsUnit.Pixel, attributes);
         }
         return bitmap;
     }
@@ -383,7 +398,7 @@ internal sealed class InstallerWindow : Form
             var cursor = new Cursor(handle); card.Cursor = cursor;
             card.Disposed += delegate { cursor.Dispose(); Setup.DestroyCursor(handle); };
             Image thumbnail;
-            using (var original = Setup.Picture(i)) thumbnail = ResizePicture(original, D(82));
+            using (var original = Setup.Picture(i)) thumbnail = ResizePicture(original, D(64), true);
             var picture = new PictureBox { Image = thumbnail, SizeMode = PictureBoxSizeMode.CenterImage, Cursor = cursor };
             picture.SetBounds(D(10), D(6), D(82), D(82)); card.Controls.Add(picture);
             picture.Disposed += delegate { picture.Image.Dispose(); };

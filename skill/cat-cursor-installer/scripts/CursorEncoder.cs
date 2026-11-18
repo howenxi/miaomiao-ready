@@ -25,10 +25,10 @@ public static class CursorEncoder
             writer.Write(mask); return stream.ToArray();
         }
     }
-    static Bitmap Resize(Bitmap source, Rectangle crop, int size)
+    static Bitmap Resize(Bitmap source, Rectangle crop, int size, float contentScale = 1f)
     {
         var image = new Bitmap(size, size, PixelFormat.Format32bppArgb);
-        float scale = (size - 2f) / Math.Max(crop.Width, crop.Height);
+        float scale = (size - 2f) * contentScale / Math.Max(crop.Width, crop.Height);
         using (var graphics = Graphics.FromImage(image))
         using (var attributes = new ImageAttributes())
         {
@@ -41,6 +41,11 @@ public static class CursorEncoder
     }
     public static void Convert(string sourcePath, string cursorPath, int hotX, int hotY)
     {
+        ConvertScaled(sourcePath, cursorPath, hotX, hotY, 1f);
+    }
+    public static void ConvertScaled(string sourcePath, string cursorPath, int hotX, int hotY, float contentScale)
+    {
+        if (float.IsNaN(contentScale) || contentScale < .3f || contentScale > 1f) throw new ArgumentException("指针内容比例须在 0.3 到 1 之间。");
         using (var source = new Bitmap(sourcePath))
         {
             if (hotX < 0 || hotY < 0 || hotX >= source.Width || hotY >= source.Height || source.GetPixel(hotX, hotY).A < 80)
@@ -57,14 +62,14 @@ public static class CursorEncoder
             var crop = Rectangle.FromLTRB(left, top, right + 1, bottom + 1);
             int[] sizes = { 32, 48, 64, 96 };
             var frames = new byte[sizes.Length][];
-            for (int i = 0; i < sizes.Length; i++) using (var image = Resize(source, crop, sizes[i])) frames[i] = Dib(image);
+            for (int i = 0; i < sizes.Length; i++) using (var image = Resize(source, crop, sizes[i], contentScale)) frames[i] = Dib(image);
             using (var writer = new BinaryWriter(File.Create(cursorPath)))
             {
                 writer.Write((ushort)0); writer.Write((ushort)2); writer.Write((ushort)sizes.Length);
                 int offset = 6 + 16 * sizes.Length;
                 for (int i = 0; i < sizes.Length; i++)
                 {
-                    int n = sizes[i]; float scale = (n - 2f) / Math.Max(crop.Width, crop.Height);
+                    int n = sizes[i]; float scale = (n - 2f) * contentScale / Math.Max(crop.Width, crop.Height);
                     writer.Write((byte)n); writer.Write((byte)n); writer.Write((byte)0); writer.Write((byte)0);
                     writer.Write((ushort)(1 + Math.Round((hotX - left) * scale)));
                     writer.Write((ushort)(1 + Math.Round((hotY - top) * scale)));

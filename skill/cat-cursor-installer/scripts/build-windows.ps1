@@ -38,7 +38,8 @@ for ($i = 0; $i -lt 8; $i++) {
     $entry = $mapping[$ids[$i]]
     $image = Resolve-Asset $entry.image
     $cursor = Join-Path $build ($i.ToString()+'.cur')
-    [CursorEncoder]::Convert($image, $cursor, [int]$entry.hotspot[0], [int]$entry.hotspot[1])
+    $contentScale = if ($null -ne $entry.contentScale) { [float]$entry.contentScale } else { [float]1 }
+    [CursorEncoder]::ConvertScaled($image, $cursor, [int]$entry.hotspot[0], [int]$entry.hotspot[1], $contentScale)
     Copy-Item -LiteralPath $image -Destination (Join-Path $build ($i.ToString()+'.png'))
     if ($null -eq $first) { $first = $i }
 }

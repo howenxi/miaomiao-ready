@@ -194,6 +194,10 @@ internal static class Setup
             using (var destination = File.Create(temp)) source.CopyTo(destination);
             File.Move(temp, target);
         }
+        string previousFolder = SizedFolder;
+        int previousSize = PreviewPixels;
+        try { foreach (int size in new int[] {12, 20, 30}) PrepareSize(size); }
+        finally { SizedFolder = previousFolder; PreviewPixels = previousSize; }
     }
     internal static void Apply()
     {
@@ -359,26 +363,19 @@ internal sealed class InstallerWindow : Form
                 foreach (var button in presets) button.Enabled = false;
                 subtitle.Text = "正在准备“" + presets[chosenPreset].Text + "”尺寸预览…";
                 int size = presetPixels[chosenPreset];
-                System.Threading.Tasks.Task.Run(delegate { Setup.PrepareSize(size); }).ContinueWith(task =>
+                try
                 {
-                    if (IsDisposed || !IsHandleCreated) return;
-                    BeginInvoke(new Action(delegate
-                    {
-                        if (IsDisposed) return;
-                        try
-                        {
-                            if (task.IsFaulted) throw task.Exception.GetBaseException();
-                            selectedPixels = size; RebuildSizePreview();
-                        }
-                        catch (Exception error) { previewError = error.ToString(); if (!Setup.SelfTesting) MessageBox.Show(this, error.Message, "预览未完成"); }
-                        finally
-                        {
-                            previewBusy = false;
-                            foreach (var button in presets) button.Enabled = true;
-                            RefreshPresets();
-                        }
-                    }));
-                });
+                    Setup.PrepareSize(size);
+                    selectedPixels = size; RebuildSizePreview();
+                    previewError = null;
+                }
+                catch (Exception error) { previewError = error.ToString(); if (!Setup.SelfTesting) MessageBox.Show(this, error.Message, "预览未完成"); }
+                finally
+                {
+                    previewBusy = false;
+                    foreach (var button in presets) button.Enabled = true;
+                    RefreshPresets();
+                }
             };
             sizeControls.Controls.Add(presets[i]);
         }

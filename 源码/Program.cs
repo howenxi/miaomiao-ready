@@ -268,7 +268,7 @@ internal sealed class InstallerWindow : Form
     readonly Button done = new AntButton { Primary = true }, restore = new AntButton();
     readonly Button closeWindow = new AntButton();
     readonly Panel sizeControls = new Panel();
-    readonly TrackBar sizeSlider = new ThemeSizeSlider { Minimum = 12, Maximum = 30, Value = 20, TickStyle = TickStyle.None, SmallChange = 1, LargeChange = 2 };
+    readonly ThemeSizeSlider sizeSlider = new ThemeSizeSlider { Minimum = 12, Maximum = 30, Value = 20, SmallChange = 1, LargeChange = 2 };
     readonly Label sizeLabel = new Label();
     readonly Button applySize = new AntButton { Primary = true, Text = "应用大小" };
     readonly System.Windows.Forms.Timer previewTimer = new System.Windows.Forms.Timer { Interval = 220 };
@@ -487,6 +487,7 @@ internal sealed class InstallerWindow : Form
     internal void Preview() { Finish(); }
     internal void VerifySizePreviews()
     {
+        sizeSlider.VerifyInteraction();
         foreach (int size in new int[] {12, 30, 20})
         {
             sizeSlider.Value = size; previewTimer.Stop(); UpdateSizePreview();
@@ -546,13 +547,99 @@ internal sealed class SmoothPanel : Panel
     internal SmoothPanel() { DoubleBuffered = true; ResizeRedraw = true; }
 }
 
-internal sealed class ThemeSizeSlider : TrackBar
+internal sealed class ThemeSizeSlider : Control
 {
+    int currentValue = 20;
+    bool dragging;
+    internal int Minimum = 12, Maximum = 30, SmallChange = 1, LargeChange = 2;
+    internal event EventHandler ValueChanged;
+    internal int Value
+    {
+        get { return currentValue; }
+        set
+        {
+            int next = Math.Max(Minimum, Math.Min(Maximum, value));
+            if (next == currentValue) return;
+            currentValue = next;
+            Invalidate();
+            if (ValueChanged != null) ValueChanged(this, EventArgs.Empty);
+        }
+    }
     internal ThemeSizeSlider()
     {
-        SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer, true);
+        SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw | ControlStyles.Selectable, true);
+        TabStop = true;
+        AccessibleName = "指针大小";
+        AccessibleRole = AccessibleRole.Slider;
     }
-    protected override void OnValueChanged(EventArgs e) { base.OnValueChanged(e); Invalidate(); }
+    float Inset { get { return Math.Max(6, Height / 5f) + 3; } }
+    void SetFromPosition(int x)
+    {
+        float width = Math.Max(1, Width - Inset * 2);
+        Value = Minimum + (int)Math.Round((Maximum - Minimum) * Math.Max(0, Math.Min(1, (x - Inset) / width)));
+    }
+    protected override void OnMouseDown(MouseEventArgs e)
+    {
+        base.OnMouseDown(e);
+        if (e.Button != MouseButtons.Left) return;
+        Focus(); dragging = true; Capture = true; SetFromPosition(e.X);
+    }
+    protected override void OnMouseMove(MouseEventArgs e)
+    {
+        base.OnMouseMove(e); if (dragging) SetFromPosition(e.X);
+    }
+    protected override void OnMouseUp(MouseEventArgs e)
+    {
+        base.OnMouseUp(e);
+        if (e.Button != MouseButtons.Left) return;
+        if (dragging) SetFromPosition(e.X);
+        dragging = false; Capture = false;
+    }
+    protected override void OnMouseCaptureChanged(EventArgs e)
+    {
+        base.OnMouseCaptureChanged(e); if (!Capture) dragging = false;
+    }
+    protected override void OnMouseWheel(MouseEventArgs e)
+    {
+        base.OnMouseWheel(e); Value += e.Delta / 120 * SmallChange;
+    }
+    protected override bool IsInputKey(Keys keyData)
+    {
+        Keys key = keyData & Keys.KeyCode;
+        return key == Keys.Left || key == Keys.Right || key == Keys.Up || key == Keys.Down || base.IsInputKey(keyData);
+    }
+    protected override void OnKeyDown(KeyEventArgs e)
+    {
+        base.OnKeyDown(e);
+        switch (e.KeyCode)
+        {
+            case Keys.Left: case Keys.Down: Value -= SmallChange; break;
+            case Keys.Right: case Keys.Up: Value += SmallChange; break;
+            case Keys.PageDown: Value -= LargeChange; break;
+            case Keys.PageUp: Value += LargeChange; break;
+            case Keys.Home: Value = Minimum; break;
+            case Keys.End: Value = Maximum; break;
+            default: return;
+        }
+        e.Handled = true;
+    }
+    protected override void OnGotFocus(EventArgs e) { base.OnGotFocus(e); Invalidate(); }
+    protected override void OnLostFocus(EventArgs e) { base.OnLostFocus(e); Invalidate(); }
+    internal void VerifyInteraction()
+    {
+        int previous = Value;
+        OnMouseDown(new MouseEventArgs(MouseButtons.Left, 1, 0, Height / 2, 0));
+        if (Value != Minimum) throw new IOException("滑块起点检查失败");
+        for (int x = 0; x <= Width; x += 3) OnMouseMove(new MouseEventArgs(MouseButtons.Left, 0, x, Height / 2, 0));
+        OnMouseUp(new MouseEventArgs(MouseButtons.Left, 1, Width, Height / 2, 0));
+        if (Value != Maximum) throw new IOException("滑块拖动检查失败");
+        OnMouseWheel(new MouseEventArgs(MouseButtons.None, 0, Width / 2, Height / 2, -120));
+        if (Value != Maximum - SmallChange) throw new IOException("滑块滚轮检查失败");
+        OnKeyDown(new KeyEventArgs(Keys.Home));
+        OnKeyDown(new KeyEventArgs(Keys.Right));
+        if (Value != Minimum + SmallChange) throw new IOException("滑块键盘检查失败");
+        Value = previous;
+    }
     protected override void OnPaint(PaintEventArgs e)
     {
         e.Graphics.Clear(Parent.BackColor);
@@ -563,6 +650,7 @@ internal sealed class ThemeSizeSlider : TrackBar
         using (var fill = new Pen(Color.FromArgb(174, 105, 49), 4)) e.Graphics.DrawLine(fill, left, center, x, center);
         using (var brush = new SolidBrush(Color.FromArgb(255, 252, 246))) e.Graphics.FillEllipse(brush, x - radius, center - radius, radius * 2, radius * 2);
         using (var pen = new Pen(Color.FromArgb(174, 105, 49), 1.5f)) e.Graphics.DrawEllipse(pen, x - radius, center - radius, radius * 2, radius * 2);
+        if (Focused && ShowFocusCues) ControlPaint.DrawFocusRectangle(e.Graphics, Rectangle.Inflate(ClientRectangle, -2, -2));
     }
 }
 

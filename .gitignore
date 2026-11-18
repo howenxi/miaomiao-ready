@@ -1,0 +1,17 @@
+# Rebuildable intermediate output and local verification files
+构建输出*/
+**/build/
+**/*预览*/
+**/integration-passed.txt
+**/passed.txt
+**/original.xml
+**/check-*.cur
+*.tmp
+__pycache__/
+.DS_Store
+Thumbs.db
+# Local credentials and environment files
+.env
+.env.*
+*.pem
+*.key

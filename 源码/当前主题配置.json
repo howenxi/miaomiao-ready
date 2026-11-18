@@ -1,0 +1,70 @@
+{
+  "runner": "../素材/银白猫-向右奔跑.png",
+  "cursors": [
+    {
+      "id": "normal",
+      "hotspot": [
+        5,
+        42
+      ],
+      "image": "../素材/双猫鼠标指针/正常选择.png"
+    },
+    {
+      "id": "text",
+      "hotspot": [
+        88,
+        226
+      ],
+      "image": "../素材/双猫鼠标指针/文字输入.png"
+    },
+    {
+      "id": "link",
+      "hotspot": [
+        49,
+        50
+      ],
+      "image": "../素材/双猫鼠标指针/链接点击.png"
+    },
+    {
+      "id": "unavailable",
+      "hotspot": [
+        124,
+        240
+      ],
+      "image": "../素材/双猫鼠标指针/不可用.png"
+    },
+    {
+      "id": "busy",
+      "hotspot": [
+        166,
+        203
+      ],
+      "image": "../素材/双猫鼠标指针/忙碌中.png"
+    },
+    {
+      "id": "move",
+      "hotspot": [
+        55,
+        87
+      ],
+      "image": "../素材/双猫鼠标指针/移动画布.png"
+    },
+    {
+      "id": "horizontal",
+      "hotspot": [
+        180,
+        231
+      ],
+      "image": "../素材/双猫鼠标指针/左右调整.png"
+    },
+    {
+      "id": "vertical",
+      "hotspot": [
+        51,
+        166
+      ],
+      "image": "../素材/双猫鼠标指针/上下调整.png"
+    }
+  ],
+  "brand": "../素材/银白猫-品牌坐姿.png"
+}

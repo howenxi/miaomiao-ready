@@ -38,3 +38,7 @@ Remove-Item Env:MIAOMIAO_PREVIEW_SCALE
 构建时另嵌入theme.xml，保存选中类型的原图热点，并把CursorEncoder编译进EXE供运行时调大小。请通过build-windows.ps1编译，单独只编译Program.cs不再具备完整资源和依赖。
 
 2026-11-19 当前尺寸更新：25/35/45采用64px单帧CUR和ConvertPixels，避免32px资源截断。应用后用SetSystemCursor设置拥有的原生句柄（该API成功后接管句柄）；预览用同一原生资源DrawIconEx绘制。Windows重新载入主题会回到系统默认缩放，可重新运行安装器恢复保存尺寸。
+
+2026-11-19 后续修正（优先于上面旧尺寸说明）：预览改用CUR解码后1:1居中。Win11创建与系统复制阶段均使用SetThreadCursorCreationScaling(1)，阻止DPI二次缩放；finally恢复线程原策略。Win10缺少接口时沿用旧路径，未经真机验证。三档预览验证包括试用线程指针的像素/热点和实际绘制居中；应用验证核对共享句柄的画布、热点与轮廓，边缘允许2px误差，不把边缘处理误判成整体缩放，也不宣称屏幕最终合成像素完全一致。自检不会移动鼠标位置；检测自己线程的GetCursor，避免把其他前台应用的GetCursorInfo当成本程序的试用指针。
+
+官方接口说明：https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-setthreadcursorcreationscaling

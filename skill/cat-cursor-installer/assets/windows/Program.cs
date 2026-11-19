@@ -13,11 +13,14 @@ internal static class Program
     [STAThread]
     static void Main(string[] args)
     {
+        if (args.Length == 2 && (args[0] == "--self-test" || args[0] == "--integration-test"))
+            AppDomain.CurrentDomain.UnhandledException += delegate(object sender, UnhandledExceptionEventArgs e)
+            { Directory.CreateDirectory(args[1]); File.WriteAllText(Path.Combine(args[1], "failed.txt"), e.ExceptionObject.ToString()); };
         if (args.Length == 2 && args[0] == "--integration-test")
         {
             Setup.Root = Path.GetFullPath(args[1]);
             Setup.Prepare(); Setup.CopyCursors(); Setup.SaveBackup();
-            try { Setup.Apply(); Setup.ApplySize(25); Setup.VerifyNativeSizes(); Setup.ApplySize(45); Setup.VerifyNativeSizes(); }
+            try { Setup.Apply(); foreach (int size in new int[] {25, 35, 45}) { Setup.ApplySize(size); Setup.VerifyNativeSizes(); } }
             finally { Setup.Restore(); }
             Setup.VerifyRestored();
             File.WriteAllText(Path.Combine(Setup.Root, "integration-passed.txt"), "Applied all eight cursors, refreshed Windows, restored original values, refreshed Windows again, verified registry values and types match backup.");
@@ -125,6 +128,10 @@ internal static class Setup
     [DllImport("gdi32.dll")] static extern IntPtr CreateDIBSection(IntPtr dc, ref BitmapHeader header, uint usage, out IntPtr pixels, IntPtr section, uint offset);
     [DllImport("gdi32.dll")] static extern IntPtr CreateBitmap(int width, int height, uint planes, uint bits, byte[] data);
     [DllImport("user32.dll")] static extern IntPtr CreateIconIndirect(ref CursorInfo info);
+    // Windows 11 otherwise virtualizes in-memory cursors for the monitor DPI.
+    // Keep the agreed 25/35/45 physical pixels, just like the unscaled preview.
+    [DllImport("user32.dll")] static extern uint SetThreadCursorCreationScaling(uint dpi);
+    internal static bool FixedPixelScalingAvailable;
     internal static IntPtr LoadPreviewCursor(string path)
     {
         byte[] data = File.ReadAllBytes(path);
@@ -141,7 +148,17 @@ internal static class Setup
             mask = CreateBitmap(width, height, 1, 1, new byte[((width + 15) / 16) * 2 * height]);
             if (mask == IntPtr.Zero) throw new IOException("鼠标透明蒙版创建失败");
             var info = new CursorInfo { Icon = false, X = BitConverter.ToUInt16(data, 10), Y = BitConverter.ToUInt16(data, 12), Color = color, Mask = mask };
-            return CreateIconIndirect(ref info);
+            uint previous = 0;
+            bool changed = false;
+            try
+            {
+                try { previous = SetThreadCursorCreationScaling(1); changed = true; FixedPixelScalingAvailable = true; }
+                catch (EntryPointNotFoundException) { } // Windows 10 uses the legacy creation path.
+                IntPtr cursor = CreateIconIndirect(ref info);
+                if (cursor == IntPtr.Zero) throw new IOException("鼠标创建失败");
+                return cursor;
+            }
+            finally { if (changed) SetThreadCursorCreationScaling(previous); }
         }
         finally { DeleteObject(color); if (mask != IntPtr.Zero) DeleteObject(mask); }
     }
@@ -157,8 +174,73 @@ internal static class Setup
                 int index = (int)item.Attribute("index");
                 Size size = NativeCursorSize(LoadCursor(IntPtr.Zero, new IntPtr(ids[index])));
                 if (size.Width != 64 || size.Height != 64) throw new IOException("系统重缩放了鼠标：" + Names[index]);
+                VerifyCursorPixels(LoadCursor(IntPtr.Zero, new IntPtr(ids[index])), CursorPath(index), false);
             }
         }
+    }
+    [StructLayout(LayoutKind.Sequential)]
+    struct BitmapReadInfo { public BitmapHeader Header; [MarshalAs(UnmanagedType.ByValArray, SizeConst = 256)] public uint[] Colors; }
+    [DllImport("gdi32.dll")] static extern int GetDIBits(IntPtr dc, IntPtr bitmap, uint start, uint lines, byte[] pixels, ref BitmapReadInfo header, uint usage);
+    [DllImport("gdi32.dll")] static extern IntPtr CreateCompatibleDC(IntPtr dc);
+    [DllImport("gdi32.dll")] static extern bool DeleteDC(IntPtr dc);
+    [DllImport("user32.dll")] static extern IntPtr SetCursor(IntPtr cursor);
+    [DllImport("user32.dll")] static extern IntPtr GetCursor();
+    internal static void VerifyCursorPixels(IntPtr handle, string path, bool exact = true)
+    {
+        byte[] expected = File.ReadAllBytes(path);
+        int offset = BitConverter.ToInt32(expected, 18);
+        int width = BitConverter.ToInt32(expected, offset + 4), height = BitConverter.ToInt32(expected, offset + 8) / 2;
+        CursorInfo info;
+        if (!GetIconInfo(handle, out info)) throw new IOException("无法读取实际鼠标像素");
+        IntPtr dc = CreateCompatibleDC(IntPtr.Zero);
+        try
+        {
+            Size actualSize = NativeCursorSize(handle);
+            if (actualSize != new Size(width, height) || info.X != BitConverter.ToUInt16(expected, 10) || info.Y != BitConverter.ToUInt16(expected, 12))
+                throw new IOException("实际鼠标尺寸或热点与预览不一致：" + Path.GetFileName(path) + "，实际" + actualSize + "，热点" + info.X + "," + info.Y);
+            byte[] actual = new byte[width * height * 4];
+            var header = new BitmapReadInfo { Header = new BitmapHeader { Size = 40, Width = width, Height = height, Planes = 1, Bits = 32 }, Colors = new uint[256] };
+            if (GetDIBits(dc, info.Color, 0, (uint)height, actual, ref header, 0) != height) throw new IOException("无法读取实际鼠标位图");
+            if (!exact)
+            {
+                // Windows can filter the shared system copy's boundary pixels.
+                // Check the visible size separately from byte-exact trial handles.
+                Rectangle expectedBounds = AlphaBounds(expected, offset + 40, width, height);
+                Rectangle actualBounds = AlphaBounds(actual, 0, width, height);
+                if (Math.Abs(expectedBounds.Width - actualBounds.Width) > 2 || Math.Abs(expectedBounds.Height - actualBounds.Height) > 2 ||
+                    Math.Abs(expectedBounds.Left - actualBounds.Left) > 2 || Math.Abs(expectedBounds.Top - actualBounds.Top) > 2)
+                    throw new IOException("系统鼠标图案大小与预览不一致：" + Path.GetFileName(path));
+                return;
+            }
+            for (int i = 0; i < actual.Length; i++) if (actual[i] != expected[offset + 40 + i])
+            {
+                throw new IOException("试用鼠标像素与预览不一致：" + Path.GetFileName(path));
+            }
+        }
+        finally { DeleteDC(dc); if (info.Color != IntPtr.Zero) DeleteObject(info.Color); if (info.Mask != IntPtr.Zero) DeleteObject(info.Mask); }
+    }
+    static Rectangle AlphaBounds(byte[] pixels, int offset, int width, int height)
+    {
+        int left = width, top = height, right = -1, bottom = -1;
+        for (int y = 0; y < height; y++) for (int x = 0; x < width; x++)
+        {
+            if (pixels[offset + (y * width + x) * 4 + 3] < 80) continue;
+            left = Math.Min(left, x); right = Math.Max(right, x); top = Math.Min(top, y); bottom = Math.Max(bottom, y);
+        }
+        if (right < left) throw new IOException("鼠标图案为空");
+        return Rectangle.FromLTRB(left, top, right + 1, bottom + 1);
+    }
+    internal static void VerifyTrialCursor(IntPtr handle, string path)
+    {
+        VerifyCursorPixels(handle, path);
+        IntPtr previous = SetCursor(handle);
+        try
+        {
+            // Check this UI thread. Global GetCursorInfo can belong to another
+            // foreground app and must not be treated as our test cursor.
+            VerifyCursorPixels(GetCursor(), path);
+        }
+        finally { SetCursor(previous); }
     }
     [StructLayout(LayoutKind.Sequential)]
     struct CursorInfo { public bool Icon; public uint X, Y; public IntPtr Mask, Color; }
@@ -175,6 +257,19 @@ internal static class Setup
         finally { if (info.Color != IntPtr.Zero) DeleteObject(info.Color); if (info.Mask != IntPtr.Zero) DeleteObject(info.Mask); }
     }
     static void ApplyNativeCursorSizes()
+    {
+        uint previous = 0; bool changed = false;
+        try
+        {
+            try { previous = SetThreadCursorCreationScaling(1); changed = true; }
+            catch (EntryPointNotFoundException) { }
+            // SetSystemCursor makes another internal copy: keep the policy active
+            // for that copy too, rather than only for CreateIconIndirect.
+            ApplyNativeCursorSizesCore();
+        }
+        finally { if (changed) SetThreadCursorCreationScaling(previous); }
+    }
+    static void ApplyNativeCursorSizesCore()
     {
         uint[] ids = {32512, 32513, 32649, 32648, 32514, 32646, 32644, 32645};
         using (var key = Registry.CurrentUser.OpenSubKey(CursorKey))
@@ -596,7 +691,18 @@ internal sealed class InstallerWindow : Form
             while (previewBusy && DateTime.UtcNow < deadline) { Application.DoEvents(); Thread.Sleep(10); }
             if (previewError != null) throw new IOException(previewError);
             if (previewBusy || Setup.PreviewPixels != presetPixels[index] || scenarios.Controls.Count == 0) throw new IOException("尺寸选项预览检查失败：期望" + presetPixels[index] + "，实际" + Setup.PreviewPixels + "，忙碌" + previewBusy + "，卡片" + scenarios.Controls.Count);
+            foreach (Control card in scenarios.Controls)
+            {
+                int cursorIndex = (int)card.Tag;
+                Setup.VerifyTrialCursor(card.Cursor.Handle, Setup.CursorPath(cursorIndex));
+                var picture = (CursorPixelPreview)card.Controls[0];
+                if (Math.Abs(Math.Max(picture.Image.Width, picture.Image.Height) - Setup.PreviewPixels) > 3) throw new IOException("预览图案大小异常");
+                picture.VerifyCentered();
+            }
+            using (var image = new Bitmap(Width, Height))
+            { DrawToBitmap(image, new Rectangle(Point.Empty, Size)); image.Save(Path.Combine(Setup.Root, "preview-" + Setup.PreviewPixels + ".png")); }
         }
+        File.WriteAllText(Path.Combine(Setup.Root, "display-check.txt"), "UI thread cursor handles, pixels and hotspots match all selected size previews. Card centering verified. Fixed-pixel cursor creation: " + Setup.FixedPixelScalingAvailable + ". This does not measure the final desktop compositor output.");
     }
     internal void PreviewLoading() { working = false; progress = 55; step.Text = "安放两只小猫"; percent.Text = "55%"; }
     void BuildScenarios()
@@ -606,6 +712,7 @@ internal sealed class InstallerWindow : Form
         {
             int index = i;
             var card = new ThemeCard { BackColor = Color.FromArgb(252, 246, 237) };
+            card.Tag = i;
             card.SetBounds(D(i % 2 * 306), D(i / 2 * 100), D(294), D(90));
             IntPtr handle = Setup.LoadPreviewCursor(Setup.CursorPath(i));
             if (handle == IntPtr.Zero) throw new IOException("无法加载试用指针");
@@ -663,6 +770,23 @@ internal sealed class CursorPixelPreview : Control
         e.Graphics.Clear(Parent.BackColor);
         if (Image == null) return;
         e.Graphics.DrawImageUnscaled(Image, (ClientSize.Width - Image.Width) / 2, (ClientSize.Height - Image.Height) / 2);
+    }
+    internal void VerifyCentered()
+    {
+        // Check the painted result, not just the control rectangle.
+        using (var bitmap = new Bitmap(Width, Height))
+        {
+            DrawToBitmap(bitmap, ClientRectangle);
+            int left = Width, top = Height, right = -1, bottom = -1;
+            for (int y = 0; y < Height; y++) for (int x = 0; x < Width; x++)
+            {
+                Color c = bitmap.GetPixel(x, y), bg = Parent.BackColor;
+                if (Math.Abs(c.R - bg.R) + Math.Abs(c.G - bg.G) + Math.Abs(c.B - bg.B) < 30) continue;
+                left = Math.Min(left, x); right = Math.Max(right, x); top = Math.Min(top, y); bottom = Math.Max(bottom, y);
+            }
+            if (right < left || Math.Abs(left - (Width - 1 - right)) > 3 || Math.Abs(top - (Height - 1 - bottom)) > 3)
+                throw new IOException("卡片图案没有居中");
+        }
     }
 }
 

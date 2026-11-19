@@ -74,5 +74,91 @@
       "contentScale": 0.65
     }
   ],
-  "brand": "../素材/银白猫-品牌坐姿.png"
+  "brand": "../素材/银白猫-品牌坐姿.png",
+  "defaultCats": [
+    0,
+    1,
+    1,
+    1,
+    1,
+    0,
+    0,
+    0
+  ],
+  "cats": [
+    {
+      "name": "银渐层",
+      "cursors": [
+        {
+          "id": "busy",
+          "image": "../素材/猫咪候选/silver-busy.png",
+          "hotspot": [
+            760,
+            614
+          ]
+        },
+        {
+          "id": "link",
+          "image": "../素材/猫咪候选/silver-link.png",
+          "hotspot": [
+            384,
+            238
+          ]
+        },
+        {
+          "id": "unavailable",
+          "image": "../素材/猫咪候选/silver-no.png",
+          "hotspot": [
+            594,
+            802
+          ]
+        },
+        {
+          "id": "text",
+          "image": "../素材/猫咪候选/silver-text.png",
+          "hotspot": [
+            637,
+            507
+          ]
+        }
+      ]
+    },
+    {
+      "name": "三花",
+      "cursors": [
+        {
+          "id": "horizontal",
+          "image": "../素材/猫咪候选/calico-horizontal.png",
+          "hotspot": [
+            768,
+            714
+          ]
+        },
+        {
+          "id": "move",
+          "image": "../素材/猫咪候选/calico-move.png",
+          "hotspot": [
+            415,
+            330
+          ]
+        },
+        {
+          "id": "normal",
+          "image": "../素材/猫咪候选/calico-normal.png",
+          "hotspot": [
+            249,
+            361
+          ]
+        },
+        {
+          "id": "vertical",
+          "image": "../素材/猫咪候选/calico-vertical.png",
+          "hotspot": [
+            396,
+            677
+          ]
+        }
+      ]
+    }
+  ]
 }

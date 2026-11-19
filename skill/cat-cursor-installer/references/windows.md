@@ -48,3 +48,5 @@ Remove-Item Env:MIAOMIAO_PREVIEW_SCALE
 此前“系统共享副本必然处理边缘、允许2px误差”的解释已被严格实验否定：实时倍率归一后，三档共24个系统副本与CUR逐字节一致。已移除宽松检查。测试应覆盖从48/第2档安装、实时32与三档应用、恢复48/第2档和旧备份升级；截图对比要包含卡片外系统鼠标，而非只看卡片内自定义试用光标。
 
 独立实现参考（非微软公开兼容保证）：https://github.com/yuanyue1234/CursorSizeSlider/blob/main/docs/API.md
+
+可选启动分配：配置 cats 数组（每项含 name 和 cursors），并按八种指针标准顺序提供 defaultCats 猫咪索引。cursors 顶层仍是默认搭配，每只猫只需提供默认搭配未分给它的造型和热点。

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.IO;
 using System.Drawing;
 using System.Windows.Forms;
@@ -29,6 +29,7 @@ internal static class Program
         if (args.Length == 2 && args[0] == "--self-test")
         {
             Setup.SelfTesting = true;
+            Setup.TestCatSelection(args[1]);
             Application.EnableVisualStyles();
             Setup.Root = Path.GetFullPath(args[1]);
             Setup.Prepare(); Setup.CopyCursors();
@@ -52,7 +53,9 @@ internal static class Program
             if (!created) { MessageBox.Show("喵喵正在工作，请查看已打开的窗口。", "喵喵就位"); return; }
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
-            Application.Run(new InstallerWindow((args.Length > 0 && args[0] == "--restore") || Path.GetFileName(Application.ExecutablePath).StartsWith("恢复")));
+            bool restoring = (args.Length > 0 && args[0] == "--restore") || Path.GetFileName(Application.ExecutablePath).StartsWith("恢复");
+            if (!restoring && !Setup.ChooseCats()) return;
+            Application.Run(new InstallerWindow(restoring));
         }
     }
 }
@@ -66,30 +69,86 @@ internal static class Setup
     const string CursorKey = @"Control Panel\Cursors";
     const string AccessibilityKey = @"Software\Microsoft\Accessibility";
     internal static bool Changed;
+    static readonly int[] choices = new int[8];
+    static string ThemeFolder { get { return "cursors-v1" + (variantMode ? "-" + string.Join("_", Array.ConvertAll(choices, n => n.ToString())) : ""); } }
+    static bool variantMode;
+
+    internal static void TestCatSelection(string output)
+    {
+        using (var catalog = Resource("cats"))
+        {
+            if (catalog == null) return;
+            Application.EnableVisualStyles();
+            using (var dialog = new CatPicker(XDocument.Load(catalog)))
+            {
+                Directory.CreateDirectory(output);
+                dialog.Show(); Application.DoEvents();
+                using (var image = new Bitmap(dialog.Width, dialog.Height))
+                {
+                    dialog.DrawToBitmap(image, new Rectangle(Point.Empty, image.Size));
+                    image.Save(Path.Combine(output, "cat-picker.png"));
+                }
+                dialog.VerifyAssignments();
+                Array.Copy(dialog.ResourceChoices(), choices, choices.Length);
+                variantMode = true;
+            }
+        }
+    }
+
+    internal static bool ChooseCats()
+    {
+        using (var catalog = Resource("cats"))
+        {
+            if (catalog == null) return true;
+            var cats = XDocument.Load(catalog);
+            using (var dialog = new CatPicker(cats))
+            {
+                if (dialog.ShowDialog() != DialogResult.OK) return false;
+                Array.Copy(dialog.ResourceChoices(), choices, choices.Length);
+                variantMode = true;
+                return true;
+            }
+        }
+    }
+    internal static bool Enabled(int index) { return choices[index] >= 0; }
+    static Stream CursorResource(string kind, int index)
+    {
+        return Resource(choices[index] == 0 ? kind + index : kind + index + "-" + choices[index]);
+    }
+    static System.Collections.Generic.IEnumerable<XElement> ThemeEntries()
+    {
+        using (var stream = Resource("theme"))
+        foreach (var entry in XDocument.Load(stream).Root.Elements("cursor"))
+        {
+            int index = (int)entry.Attribute("index");
+            if (!Enabled(index)) continue;
+            if (choices[index] == 0) { yield return entry; continue; }
+            foreach (var variant in entry.Elements("variant"))
+                if ((int)variant.Attribute("number") == choices[index]) { yield return variant; break; }
+        }
+    }
     internal static bool SelfTesting;
     internal static string SizedFolder;
     internal static int PreviewPixels = 35;
     internal static string CursorPath(int index)
     {
-        return Path.Combine(SizedFolder ?? Path.Combine(Root, "cursors-v1"), Names[index] + ".cur");
+        return Path.Combine(SizedFolder ?? Path.Combine(Root, ThemeFolder), Names[index] + ".cur");
     }
     internal static void PrepareSize(int pixels)
     {
         if (pixels != 25 && pixels != 35 && pixels != 45) throw new ArgumentOutOfRangeException("pixels");
-        string folder = Path.Combine(Root, "cursors-v1", "size-native-v3-" + pixels);
+        string folder = Path.Combine(Root, ThemeFolder, "size-native-v3-" + pixels);
         if (!Directory.Exists(folder))
         {
             string staging = folder + "." + Guid.NewGuid().ToString("N");
             Directory.CreateDirectory(staging);
             try
             {
-                XDocument theme;
-                using (var stream = Resource("theme")) theme = XDocument.Load(stream);
-                foreach (var item in theme.Root.Elements("cursor"))
+                foreach (var item in ThemeEntries())
                 {
                     int index = (int)item.Attribute("index");
                     string png = Path.Combine(staging, index + ".png");
-                    using (var source = Resource("picture" + index))
+                    using (var source = CursorResource("picture", index))
                     using (var target = File.Create(png)) source.CopyTo(target);
                     string path = Path.Combine(staging, Names[index] + ".cur");
                     CursorEncoder.ConvertPixels(png, path, (int)item.Attribute("x"), (int)item.Attribute("y"), pixels);
@@ -115,7 +174,7 @@ internal static class Setup
         try
         {
             PrepareSize(pixels); Apply();
-            string setting = Path.Combine(Root, "cursors-v1", "size.txt");
+            string setting = Path.Combine(Root, ThemeFolder, "size.txt");
             string temp = setting + ".tmp";
             File.WriteAllText(temp, pixels.ToString());
             if (File.Exists(setting)) File.Replace(temp, setting, null); else File.Move(temp, setting);
@@ -208,7 +267,7 @@ internal static class Setup
         uint[] ids = {32512, 32513, 32649, 32648, 32514, 32646, 32644, 32645};
         using (var stream = Resource("theme"))
         {
-            foreach (var item in XDocument.Load(stream).Root.Elements("cursor"))
+            foreach (var item in ThemeEntries())
             {
                 int index = (int)item.Attribute("index");
                 Size size = NativeCursorSize(LoadCursor(IntPtr.Zero, new IntPtr(ids[index])));
@@ -306,7 +365,7 @@ internal static class Setup
     internal static Stream Resource(string name) { return Assembly.GetExecutingAssembly().GetManifestResourceStream(name); }
     internal static Image Picture(int index)
     {
-        using (var stream = Resource("picture" + index))
+        using (var stream = CursorResource("picture", index))
         using (var image = Image.FromStream(stream)) return new Bitmap(image);
     }
     internal static void Prepare()
@@ -315,8 +374,8 @@ internal static class Setup
         // Validate every bundled cursor before modifying the user's settings.
         for (int i = 0; i < Names.Length; i++)
         {
-            string path = Path.Combine(Root, "check-" + i + ".cur");
-            using (var source = Resource("cursor" + i))
+            if (!Enabled(i)) continue; string path = Path.Combine(Root, "check-" + i + ".cur");
+            using (var source = CursorResource("cursor", i))
             using (var destination = File.Create(path)) source.CopyTo(destination);
             IntPtr handle = LoadCursorFromFile(path);
             if (handle == IntPtr.Zero) throw new IOException("无法读取指针文件：" + Names[i]);
@@ -390,14 +449,14 @@ internal static class Setup
     internal static void CopyCursors()
     {
         // Stable content-specific directory keeps files used by an older install intact.
-        string folder = Path.Combine(Root, "cursors-v1");
+        string folder = Path.Combine(Root, ThemeFolder);
         Directory.CreateDirectory(folder);
         for (int i = 0; i < Names.Length; i++)
         {
-            string target = Path.Combine(folder, Names[i] + ".cur");
+            if (!Enabled(i)) continue; string target = Path.Combine(folder, Names[i] + ".cur");
             if (File.Exists(target)) continue;
             string temp = target + ".tmp";
-            using (var source = Resource("cursor" + i))
+            using (var source = CursorResource("cursor", i))
             using (var destination = File.Create(temp)) source.CopyTo(destination);
             File.Move(temp, target);
         }
@@ -411,7 +470,7 @@ internal static class Setup
         if (SizedFolder == null)
         {
             int saved;
-            string setting = Path.Combine(Root, "cursors-v1", "size.txt");
+            string setting = Path.Combine(Root, ThemeFolder, "size.txt");
             if (File.Exists(setting) && int.TryParse(File.ReadAllText(setting), out saved)) PrepareSize(saved <= 25 ? 25 : saved <= 35 ? 35 : 45); else PrepareSize(35);
         }
         Changed = true;
@@ -419,7 +478,7 @@ internal static class Setup
         {
             for (int i = 0; i < Roles.Length; i++)
             {
-                string path = CursorPath(i);
+                if (!Enabled(i)) continue; string path = CursorPath(i);
                 IntPtr handle = LoadCursorFromFile(path);
                 if (handle == IntPtr.Zero) throw new IOException("指针文件无法加载：" + Names[i]);
                 DestroyCursor(handle);
@@ -489,6 +548,124 @@ internal static class Setup
         int originalSize = (int?)document.Root.Attribute("runtimeCursorBaseSize") ?? 0;
         if (originalSize > 0) SetRuntimeCursorBaseSize(originalSize, true);
         Reload(); ApplyNativeCursorSizes(); NotifyCursorSettings();
+    }
+}
+
+internal sealed class CatPicker : Form
+{
+    internal readonly int[] Choices = new int[8];
+    readonly PictureBox[] pictures = new PictureBox[8];
+    readonly Button[] assignments = new Button[8];
+    readonly string[] names;
+    readonly int[] defaults;
+    readonly FlowLayoutPanel cats = new FlowLayoutPanel();
+    readonly Button apply = new AntButton { Text = "应用", Primary = true, DialogResult = DialogResult.OK };
+    int selected;
+
+    internal CatPicker(XDocument catalog)
+    {
+        var entries = new System.Collections.Generic.List<XElement>(catalog.Root.Elements("cat"));
+        names = entries.ConvertAll(e => (string)e.Attribute("name")).ToArray();
+        defaults = Array.ConvertAll(((string)catalog.Root.Attribute("defaults")).Split(','), int.Parse);
+        Text = "喵喵就位 · 选择小猫";
+        Font = new Font("Microsoft YaHei", 10);
+        BackColor = Color.FromArgb(255, 250, 244);
+        StartPosition = FormStartPosition.CenterScreen;
+        FormBorderStyle = FormBorderStyle.FixedDialog;
+        MaximizeBox = false; MinimizeBox = false;
+        ClientSize = new Size(640, 474);
+
+        var title = new Label { Text = "选一只猫，再分配指针", Font = new Font(Font, FontStyle.Bold), AutoSize = true, Left = 24, Top = 20 };
+        Controls.Add(title);
+        cats.SetBounds(21, 52, 598, 74);
+        cats.AutoScroll = true; cats.WrapContents = false;
+        Controls.Add(cats);
+        for (int i = 0; i < names.Length; i++)
+        {
+            int cat = i;
+            var button = new AntButton { Text = names[i], Width = 135, Height = 60 };
+            button.Click += delegate { selected = cat; RefreshChoices(); };
+            var catCard = new Panel { Width = 138, Height = 60 };
+            var avatar = new PictureBox { Width = 42, Height = 42, Left = 5, Top = 8, SizeMode = PictureBoxSizeMode.Zoom };
+            using (var stream = Setup.Resource(i == defaults[0] ? "picture0" : "picture0-" + (i + 1)))
+            using (var source = Image.FromStream(stream))
+                avatar.Image = new Bitmap(source, 42, 42);
+            avatar.Disposed += delegate { avatar.Image.Dispose(); };
+            avatar.Click += delegate { selected = cat; RefreshChoices(); };
+            button.SetBounds(49, 5, 86, 48);
+            catCard.Controls.Add(button); catCard.Controls.Add(avatar);
+            cats.Controls.Add(catCard);
+        }
+        Controls.Add(new Label { Text = "点击场景分配，再点一次取消。未分配的场景保留原指针。", AutoSize = true, Left = 24, Top = 130 });
+        for (int i = 0; i < Choices.Length; i++)
+        {
+            int index = i, x = 24 + i % 2 * 302, y = 164 + i / 2 * 59;
+            pictures[i] = new PictureBox { Left = x, Top = y, Width = 48, Height = 48, SizeMode = PictureBoxSizeMode.Zoom };
+            var button = new AntButton { Left = x + 52, Top = y, Width = 230, Height = 48 };
+            assignments[i] = button;
+            EventHandler toggle = delegate { Choices[index] = Choices[index] == selected ? -1 : selected; RefreshChoices(); };
+            button.Click += toggle; pictures[i].Click += toggle;
+            Controls.Add(pictures[i]); Controls.Add(button);
+        }
+        var current = new AntButton { Text = "使用当前搭配", Left = 24, Top = 421, Width = 145, Height = 36 };
+        current.Click += delegate { Array.Copy(defaults, Choices, Choices.Length); RefreshChoices(); };
+        var cancel = new AntButton { Text = "取消", Left = 427, Top = 421, Width = 88, Height = 36, DialogResult = DialogResult.Cancel };
+        apply.SetBounds(528, 421, 88, 36);
+        Controls.Add(current); Controls.Add(cancel); Controls.Add(apply);
+        CancelButton = cancel; AcceptButton = apply;
+        Array.Copy(defaults, Choices, Choices.Length);
+        RefreshChoices();
+    }
+
+    void RefreshChoices()
+    {
+        for (int i = 0; i < names.Length; i++)
+        {
+            var button = (AntButton)cats.Controls[i].Controls[0];
+            button.Primary = selected == i; button.Invalidate();
+        }
+        apply.Enabled = Array.Exists(Choices, n => n >= 0);
+        for (int i = 0; i < Choices.Length; i++)
+        {
+            int cat = Choices[i], shown = cat < 0 ? selected : cat;
+            assignments[i].Text = Setup.Names[i] + " · " + (cat < 0 ? "保留原指针" : names[cat]);
+            var old = pictures[i].Image;
+            int variant = shown == defaults[i] ? 0 : shown + 1;
+            using (var source = Setup.Resource(variant == 0 ? "picture" + i : "picture" + i + "-" + variant))
+            using (var original = Image.FromStream(source))
+                pictures[i].Image = new Bitmap(original, 48, 48);
+            if (old != null) old.Dispose();
+        }
+    }
+
+    internal void VerifyAssignments()
+    {
+        if (names.Length < 2) throw new IOException("至少需要两只可选猫咪");
+        for (int i = 0; i < Choices.Length; i++)
+        {
+            selected = (defaults[i] + 1) % names.Length;
+            assignments[i].PerformClick();
+            if (Choices[i] != selected) throw new IOException("猫咪分配失败");
+        }
+        selected = Choices[0];
+        assignments[0].PerformClick();
+        if (Choices[0] != -1) throw new IOException("取消分配失败");
+    }
+
+    internal int[] ResourceChoices()
+    {
+        var result = new int[Choices.Length];
+        for (int i = 0; i < result.Length; i++)
+            result[i] = Choices[i] < 0 ? -1 : Choices[i] == defaults[i] ? 0 : Choices[i] + 1;
+        return result;
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing)
+            foreach (var picture in pictures)
+                if (picture != null && picture.Image != null) picture.Image.Dispose();
+        base.Dispose(disposing);
     }
 }
 
@@ -769,13 +946,15 @@ internal sealed class InstallerWindow : Form
     internal void PreviewLoading() { working = false; progress = 55; step.Text = "安放两只小猫"; percent.Text = "55%"; }
     void BuildScenarios()
     {
+        int cardIndex = 0;
         string[] descriptions = { "在空白区域移动鼠标", "在这里输入文字", "试试这个链接", "此操作暂不可用", "等待任务处理完成", "按住拖动这只小猫", "左右移动鼠标试用", "上下移动鼠标试用" };
         for (int i = 0; i < 8; i++)
         {
             int index = i;
+            if (!Setup.Enabled(i)) continue;
             var card = new ThemeCard { BackColor = Color.FromArgb(252, 246, 237) };
             card.Tag = i;
-            card.SetBounds(D(i % 2 * 306), D(i / 2 * 100), D(294), D(90));
+            card.SetBounds(D(cardIndex % 2 * 306), D(cardIndex++ / 2 * 100), D(294), D(90));
             IntPtr handle = Setup.LoadPreviewCursor(Setup.CursorPath(i));
             if (handle == IntPtr.Zero) throw new IOException("无法加载试用指针");
             var cursor = new Cursor(handle); card.Cursor = cursor;

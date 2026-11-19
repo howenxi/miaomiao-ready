@@ -55,6 +55,16 @@ for ($i = 0; $i -lt 8; $i++) {
         $hashInput.Write($bytes,0,$bytes.Length)
     }
 }
+if ($config.cats) {
+    $bytes = [IO.File]::ReadAllBytes($configFile)
+    $hashInput.Write($bytes,0,$bytes.Length)
+    foreach ($cat in $config.cats) {
+        foreach ($candidate in $cat.cursors) {
+            $bytes = [IO.File]::ReadAllBytes((Resolve-Asset $candidate.image))
+            $hashInput.Write($bytes,0,$bytes.Length)
+        }
+    }
+}
 $sha = [Security.Cryptography.SHA256]::Create()
 $digest = ([BitConverter]::ToString($sha.ComputeHash($hashInput.ToArray()))).Replace('-','').Substring(0,16)
 $sha.Dispose(); $hashInput.Dispose()
@@ -97,6 +107,41 @@ for ($i=0; $i -lt 8; $i++) {
     $element.SetAttribute('x',([int]$mapping[$ids[$i]].hotspot[0]).ToString())
     $element.SetAttribute('y',([int]$mapping[$ids[$i]].hotspot[1]).ToString())
     [void]$themeRoot.AppendChild($element)
+}
+if ($config.cats) {
+    if ($entries.Count -ne 8) { throw '可分配的猫咪主题必须包含八种指针。' }
+    $catalog = New-Object Xml.XmlDocument
+    $root = $catalog.CreateElement('cats')
+    [void]$catalog.AppendChild($root)
+    $defaultCats = @($config.defaultCats)
+    if ($defaultCats.Count -ne 8) { throw '请为八种指针指定默认猫咪。' }
+    $root.SetAttribute('defaults',($defaultCats -join ','))
+    for ($catIndex=0; $catIndex -lt $config.cats.Count; $catIndex++) {
+        $cat = $config.cats[$catIndex]
+        $entry = $catalog.CreateElement('cat')
+        $entry.SetAttribute('name',[string]$cat.name)
+        [void]$root.AppendChild($entry)
+        for ($i=0; $i -lt 8; $i++) {
+            if ($defaultCats[$i] -eq $catIndex) { continue }
+            $variant = @($cat.cursors | Where-Object id -eq $ids[$i])
+            if ($variant.Count -ne 1) { throw "缺少猫咪造型：$($cat.name) / $($ids[$i])" }
+            $variant = $variant[0]
+            $number = $catIndex + 1
+            $png = Resolve-Asset $variant.image
+            $cur = Join-Path $build "$i-$number.cur"
+            [CursorEncoder]::ConvertScaled($png,$cur,[int]$variant.hotspot[0],[int]$variant.hotspot[1],0.65)
+            $arguments += "/resource:$png,picture$i-$number"
+            $arguments += "/resource:$cur,cursor$i-$number"
+            $node = $theme.CreateElement('variant')
+            $node.SetAttribute('index',"$i")
+            $node.SetAttribute('number',"$number")
+            $node.SetAttribute('x',[string]$variant.hotspot[0])
+            $node.SetAttribute('y',[string]$variant.hotspot[1])
+            [void]$themeRoot.ChildNodes[$i].AppendChild($node)
+        }
+    }
+    $catalog.Save((Join-Path $build 'cats.xml'))
+    $arguments += '/resource:'+(Join-Path $build 'cats.xml')+',cats'
 }
 $theme.Save((Join-Path $build 'theme.xml'))
 $arguments += '/resource:'+(Join-Path $build 'theme.xml')+',theme'

@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>喵喵就位 · 界面原型</title>
+<style>
+:root{--paper:#fff;--ground:#f1eef6;--ink:#292439;--muted:#665d74;--berry:#65418a;--tint:#f1e8fa;--line:#e6dfed}
+*{box-sizing:border-box}body{margin:0;background:var(--ground);color:var(--ink);font:15px/1.55 "Microsoft YaHei","PingFang SC",sans-serif}button,input{font:inherit}button{cursor:pointer}button:focus-visible,input:focus-visible{outline:3px solid #9866c2;outline-offset:3px}button:disabled{cursor:default;opacity:.48}
+.demo{width:min(850px,calc(100% - 32px));margin:32px auto 48px}.nav{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:12px}.nav span{color:var(--muted);margin-right:auto}.nav button,.plain{border:0;background:transparent;color:var(--muted);padding:8px 12px;border-radius:8px}.nav button[aria-current=true]{background:white;color:var(--berry);font-weight:700}
+.window{background:white;border:1px solid var(--line);border-radius:20px;overflow:hidden;box-shadow:0 16px 48px #33224b12}.brand{display:flex;align-items:center;gap:10px;padding:11px 28px;border-bottom:1px solid var(--line);height:64px}.brand img{width:38px;height:38px;object-fit:contain}.brand strong{font-size:18px}.brand small{margin-left:auto;color:var(--muted);font-size:13px}main{padding:30px 36px 0;min-height:510px}h1{font-size:clamp(24px,5vw,32px);line-height:1.25;margin:0 0 8px;letter-spacing:-.03em}p{margin:0;color:var(--muted)}.cats{display:flex;gap:10px;margin:24px 0 18px}.cat{display:flex;align-items:center;gap:8px;min-height:52px;padding:6px 14px;background:white;border:1px solid var(--line);border-radius:12px;color:var(--ink);font-weight:700}.cat[aria-pressed=true]{background:var(--tint);border-color:var(--berry);color:var(--berry)}
+.art{width:36px;height:36px;object-fit:contain;flex:none}.grid{display:grid;grid-template-columns:1fr 1fr;gap:0 24px;border-top:1px solid var(--line)}.row{display:flex;align-items:center;gap:11px;min-height:59px;width:100%;padding:8px 4px;border:0;border-bottom:1px solid var(--line);background:white;text-align:left;color:var(--ink)}button.row:hover{background:#faf6fd}.row strong{font-size:14px}.tag{margin-left:auto;white-space:nowrap;font-size:12px;color:var(--muted);background:#f4f1f6;border-radius:6px;padding:3px 7px}.tag.on{color:var(--berry);background:var(--tint)}
+footer{display:flex;align-items:center;gap:10px;padding:18px 0 22px;margin-top:13px;flex-wrap:wrap}.push{margin-left:auto}.cta,.secondary{min-height:42px;border-radius:9px;padding:8px 16px;font-weight:700}.cta{background:var(--berry);border:1px solid var(--berry);color:white}.secondary{background:white;border:1px solid var(--line);color:var(--ink)}.status{color:var(--muted);font-size:13px}.stage{min-height:350px;display:grid;align-content:center;gap:18px;padding:24px 8px}.track{height:8px;background:var(--tint);border-radius:99px;position:relative;margin:46px 44px 0}.fill{height:100%;width:var(--progress);background:var(--berry);border-radius:99px}.runner{position:absolute;width:94px;height:78px;object-fit:contain;left:var(--progress);bottom:4px;transform:translateX(-50%)}.progressText{display:flex;justify-content:space-between;margin:0 44px;color:var(--muted);font-variant-numeric:tabular-nums}.sizes{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:22px 0 16px}.sizes button[aria-pressed=true]{background:var(--tint);color:var(--berry);border-color:var(--berry)}.trial{min-height:65px}.trial img{width:var(--size);height:var(--size)}.trial small{display:block;color:var(--muted)}.trial input{width:100%;max-width:200px;border:1px solid var(--line);border-radius:6px;padding:3px 7px;margin-top:3px}.trial button{padding:0;background:transparent;border:0;color:var(--berry);text-decoration:underline}
+@media(max-width:600px){.demo{margin-top:12px}.brand{padding-inline:16px}main{padding:22px 16px 0}.grid{grid-template-columns:1fr}.track,.progressText{margin-inline:28px}.nav span{width:100%}}
+</style>
+<div class="demo">
+<nav class="nav" aria-label="原型页面"><span>交互原型 · 不修改系统指针</span><button data-page="pick">选猫页</button><button data-page="load">加载页</button><button data-page="done">完成页</button></nav>
+<div class="window"><header class="brand"><img src="../素材/银白猫-品牌坐姿.png" alt=""><strong>喵喵就位</strong><small id="step"></small></header><main id="screen"></main></div>
+</div>
+<script>
+const names=['正常选择','文字输入','链接点击','不可用','忙碌中','移动画布','左右调整','上下调整'];
+const variants=['calico-normal','silver-text','silver-link','silver-no','silver-busy','calico-move','calico-horizontal','calico-vertical'];
+const cats=['银渐层','三花'], defaults=[0,1,1,1,1,0,0,0];
+const descriptions=['移动鼠标试试','输入几个字','点一下链接','此操作暂不可用','查看等待指针','在区域内移动','左右移动鼠标','上下移动鼠标'];
+let choices=[...defaults],cat=0,selected=35,applied=35,timer,page='pick';
+const screen=document.querySelector('#screen'),step=document.querySelector('#step');
+const asset=(i,c)=>c===defaults[i]?'../素材/双猫鼠标指针/'+names[i]+'.png':'../素材/猫咪候选/'+variants[i]+'.png';
+const art=(i,c)=>'<img class="art" src="'+asset(i,c)+'" alt="">';
+function view(next,animate=false,focus=''){
+clearInterval(timer);page=next;
+document.querySelectorAll('[data-page]').forEach(b=>b.setAttribute('aria-current',b.dataset.page===page));
+step.textContent={pick:'选择与分配',load:'正在安装',done:'试用鼠标'}[page];
+if(page==='pick'){
+ const total=choices.filter(c=>c>=0).length;
+ screen.innerHTML='<h1 tabindex="-1">为指针挑选小猫</h1><p>先选一只猫，再点要交给它的指针。再次点击可取消分配。</p><div class="cats" aria-label="选择小猫">'+cats.map((n,c)=>'<button class="cat" id="cat'+c+'" aria-pressed="'+(c===cat)+'">'+art(0,c)+n+'</button>').join('')+'</div><div class="grid">'+names.map((n,i)=>'<button class="row" id="row'+i+'" aria-pressed="'+(choices[i]===cat)+'">'+art(i,choices[i]<0?cat:choices[i])+'<strong>'+n+'</strong><span class="tag '+(choices[i]>=0?'on':'')+'">'+(cats[choices[i]]??'保留原指针')+'</span></button>').join('')+'</div><footer><button class="plain" id="reset">恢复推荐搭配</button><span class="status push" aria-live="polite">已分配 '+total+' 项</span><button class="cta" id="apply" '+(total?'':'disabled')+'>应用指针</button></footer>';
+ cats.forEach((_,i)=>document.querySelector('#cat'+i).onclick=()=>{cat=i;view('pick',false,'cat'+i)});
+ names.forEach((_,i)=>document.querySelector('#row'+i).onclick=()=>{choices[i]=choices[i]===cat?-1:cat;view('pick',false,'row'+i)});
+ document.querySelector('#reset').onclick=()=>{choices=[...defaults];view('pick',false,'reset')};
+ document.querySelector('#apply').onclick=()=>view('load',true);
+}else if(page==='load'){
+ screen.innerHTML='<h1 tabindex="-1">小猫正在赶来</h1><p>正在为所选场景应用鼠标指针。</p><div class="stage"><div class="track" id="track" role="progressbar" aria-label="安装进度" aria-valuemin="0" aria-valuemax="100"><div class="fill"></div><img class="runner" src="../素材/银白猫-向右奔跑.png" alt=""></div><div class="progressText"><span id="phase"></span><strong id="pct"></strong></div></div>';
+ const update=n=>{const track=document.querySelector('#track');track.style.setProperty('--progress',n+'%');track.setAttribute('aria-valuenow',n);document.querySelector('#pct').textContent=n+'%';document.querySelector('#phase').textContent=n<30?'检查指针':n<60?'备份原鼠标':n<100?'应用猫咪指针':'应用完成'};
+ let n=animate?0:56;update(n);
+ if(animate)timer=setInterval(()=>{n+=4;update(n);if(n===100){clearInterval(timer);timer=setTimeout(()=>view('done',false,'heading'),240)}},80);
+ if(animate)focus='heading';
+}else{
+ const items=names.map((n,i)=>[n,i]).filter(([n,i])=>choices[i]>=0);
+ screen.innerHTML='<h1 tabindex="-1">小猫已就位</h1><p>试试各个场景，也可以先预览其他指针大小。</p><div class="sizes"><strong>指针大小</strong>'+[25,35,45].map((n,i)=>'<button id="s'+n+'" class="secondary" aria-pressed="'+(n===selected)+'">'+['小','中','大'][i]+'</button>').join('')+'<button id="sizeApply" class="secondary" '+(selected===applied?'disabled':'')+'>应用大小</button><span class="status" aria-live="polite">'+(selected===applied?'已应用 '+applied+' px':'预览 '+selected+' px')+'</span></div><div class="grid" style="--size:'+selected+'px">'+(items.length?items.map(([n,i])=>'<div class="row trial">'+art(i,choices[i])+'<div><strong>'+n+'</strong>'+(i===1?'<input aria-label="试用文字输入" placeholder="输入几个字">':i===2?'<small><button id="link">点一下链接</button></small>':'<small>'+descriptions[i]+'</small>')+'</div></div>').join(''):'<p>还没有分配指针。</p>')+'</div><footer><button id="restore" class="plain">恢复原鼠标</button><button id="close" class="cta push">关闭预览</button></footer>';
+ [25,35,45].forEach(n=>document.querySelector('#s'+n).onclick=()=>{selected=n;view('done',false,'s'+n)});
+ document.querySelector('#sizeApply').onclick=()=>{applied=selected;view('done',false,'s'+selected)};
+ const link=document.querySelector('#link');if(link)link.onclick=()=>{link.textContent='点击成功'};
+ document.querySelector('#restore').onclick=()=>{choices=Array(8).fill(-1);view('pick',false,'heading')};
+ document.querySelector('#close').onclick=()=>view('pick',false,'heading');
+}
+if(focus==='heading')screen.querySelector('h1').focus();else if(focus)document.getElementById(focus)?.focus();
+}
+document.querySelectorAll('[data-page]').forEach(b=>b.onclick=()=>view(b.dataset.page,b.dataset.page==='load'));
+view('pick');
+</script>
+</html>

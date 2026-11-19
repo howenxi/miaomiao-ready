@@ -19,10 +19,39 @@ public static class CursorEncoder
             for (int y = 0; y < n; y++) for (int x = 0; x < n; x++)
             {
                 Color pixel = bitmap.GetPixel(x, n - y - 1);
-                writer.Write(pixel.B); writer.Write(pixel.G); writer.Write(pixel.R); writer.Write(pixel.A);
+                writer.Write((byte)((pixel.B * pixel.A + 127) / 255));
+                writer.Write((byte)((pixel.G * pixel.A + 127) / 255));
+                writer.Write((byte)((pixel.R * pixel.A + 127) / 255)); writer.Write(pixel.A);
                 if (pixel.A == 0) mask[y * stride + x / 8] |= (byte)(128 >> (x % 8));
             }
             writer.Write(mask); return stream.ToArray();
+        }
+    }
+    public static Bitmap ReadPixels(string path)
+    {
+        byte[] data = File.ReadAllBytes(path);
+        if (data.Length < 62 || BitConverter.ToUInt16(data, 2) != 2) throw new IOException("无效的鼠标文件");
+        int offset = BitConverter.ToInt32(data, 18);
+        int width = BitConverter.ToInt32(data, offset + 4), height = BitConverter.ToInt32(data, offset + 8) / 2;
+        if (width < 1 || height < 1 || width > 256 || height > 256 || offset + 40L + width * height * 4L > data.Length) throw new IOException("鼠标图像格式异常");
+        using (var full = new Bitmap(width, height, PixelFormat.Format32bppArgb))
+        {
+            int left = width, top = height, right = -1, bottom = -1;
+            for (int y = 0; y < height; y++) for (int x = 0; x < width; x++)
+            {
+                int position = offset + 40 + ((height - 1 - y) * width + x) * 4;
+                int alpha = data[position + 3];
+                if (alpha == 0) continue;
+                full.SetPixel(x, y, Color.FromArgb(alpha,
+                    Math.Min(255, (data[position + 2] * 255 + alpha / 2) / alpha),
+                    Math.Min(255, (data[position + 1] * 255 + alpha / 2) / alpha),
+                    Math.Min(255, (data[position] * 255 + alpha / 2) / alpha)));
+                if (alpha >= 16) { left = Math.Min(left, x); right = Math.Max(right, x); top = Math.Min(top, y); bottom = Math.Max(bottom, y); }
+            }
+            if (right < left) throw new IOException("鼠标图像为空");
+            left = Math.Max(0, left - 1); top = Math.Max(0, top - 1);
+            right = Math.Min(width - 1, right + 1); bottom = Math.Min(height - 1, bottom + 1);
+            return full.Clone(Rectangle.FromLTRB(left, top, right + 1, bottom + 1), PixelFormat.Format32bppArgb);
         }
     }
     static Bitmap Resize(Bitmap source, Rectangle crop, int size, float contentScale = 1f)

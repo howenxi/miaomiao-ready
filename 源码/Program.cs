@@ -72,7 +72,7 @@ internal static class Setup
     internal static void PrepareSize(int pixels)
     {
         if (pixels != 25 && pixels != 35 && pixels != 45) throw new ArgumentOutOfRangeException("pixels");
-        string folder = Path.Combine(Root, "cursors-v1", "size-native-v2-" + pixels);
+        string folder = Path.Combine(Root, "cursors-v1", "size-native-v3-" + pixels);
         if (!Directory.Exists(folder))
         {
             string staging = folder + "." + Guid.NewGuid().ToString("N");
@@ -120,12 +120,30 @@ internal static class Setup
     static extern bool SystemParametersInfo(uint action, uint param, IntPtr value, uint flags);
     [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     internal static extern IntPtr LoadCursorFromFile(string path);
-    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
-    static extern IntPtr LoadImage(IntPtr instance, string path, uint type, int width, int height, uint flags);
-    [DllImport("user32.dll")] static extern int GetSystemMetrics(int index);
+    [StructLayout(LayoutKind.Sequential)]
+    struct BitmapHeader { public uint Size; public int Width, Height; public ushort Planes, Bits; public uint Compression, ImageSize; public int X, Y; public uint Used, Important; }
+    [DllImport("gdi32.dll")] static extern IntPtr CreateDIBSection(IntPtr dc, ref BitmapHeader header, uint usage, out IntPtr pixels, IntPtr section, uint offset);
+    [DllImport("gdi32.dll")] static extern IntPtr CreateBitmap(int width, int height, uint planes, uint bits, byte[] data);
+    [DllImport("user32.dll")] static extern IntPtr CreateIconIndirect(ref CursorInfo info);
     internal static IntPtr LoadPreviewCursor(string path)
     {
-        return LoadImage(IntPtr.Zero, path, 2, 0, 0, 0x10);
+        byte[] data = File.ReadAllBytes(path);
+        int offset = BitConverter.ToInt32(data, 18);
+        int width = BitConverter.ToInt32(data, offset + 4), height = BitConverter.ToInt32(data, offset + 8) / 2;
+        var header = new BitmapHeader { Size = 40, Width = width, Height = height, Planes = 1, Bits = 32 };
+        IntPtr pixels;
+        IntPtr color = CreateDIBSection(IntPtr.Zero, ref header, 0, out pixels, IntPtr.Zero, 0);
+        if (color == IntPtr.Zero) throw new IOException("鼠标像素缓冲区创建失败");
+        IntPtr mask = IntPtr.Zero;
+        try
+        {
+            Marshal.Copy(data, offset + 40, pixels, width * height * 4);
+            mask = CreateBitmap(width, height, 1, 1, new byte[((width + 15) / 16) * 2 * height]);
+            if (mask == IntPtr.Zero) throw new IOException("鼠标透明蒙版创建失败");
+            var info = new CursorInfo { Icon = false, X = BitConverter.ToUInt16(data, 10), Y = BitConverter.ToUInt16(data, 12), Color = color, Mask = mask };
+            return CreateIconIndirect(ref info);
+        }
+        finally { DeleteObject(color); if (mask != IntPtr.Zero) DeleteObject(mask); }
     }
     [DllImport("user32.dll", SetLastError = true)] static extern bool SetSystemCursor(IntPtr cursor, uint id);
     [DllImport("user32.dll")] static extern IntPtr LoadCursor(IntPtr instance, IntPtr id);
@@ -146,19 +164,6 @@ internal static class Setup
     struct CursorInfo { public bool Icon; public uint X, Y; public IntPtr Mask, Color; }
     [DllImport("user32.dll")] static extern bool GetIconInfo(IntPtr cursor, out CursorInfo info);
     [DllImport("gdi32.dll")] static extern bool DeleteObject(IntPtr handle);
-    [DllImport("user32.dll", SetLastError = true)] static extern bool DrawIconEx(IntPtr dc, int x, int y, IntPtr icon, int width, int height, uint step, IntPtr brush, uint flags);
-    internal static Image RenderCursor(IntPtr handle)
-    {
-        Size size = NativeCursorSize(handle);
-        var image = new Bitmap(size.Width, size.Height, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
-        using (var graphics = Graphics.FromImage(image))
-        {
-            IntPtr dc = graphics.GetHdc();
-            try { if (!DrawIconEx(dc, 0, 0, handle, size.Width, size.Height, 0, IntPtr.Zero, 3)) throw new IOException("无法绘制鼠标预览"); }
-            finally { graphics.ReleaseHdc(dc); }
-        }
-        return image;
-    }
     internal static Size NativeCursorSize(IntPtr handle)
     {
         CursorInfo info;
@@ -606,8 +611,8 @@ internal sealed class InstallerWindow : Form
             if (handle == IntPtr.Zero) throw new IOException("无法加载试用指针");
             var cursor = new Cursor(handle); card.Cursor = cursor;
             card.Disposed += delegate { cursor.Dispose(); Setup.DestroyCursor(handle); };
-            Image thumbnail = Setup.RenderCursor(handle);
-            var picture = new PictureBox { Image = thumbnail, SizeMode = PictureBoxSizeMode.CenterImage, Cursor = cursor };
+            Image thumbnail = CursorEncoder.ReadPixels(Setup.CursorPath(i));
+            var picture = new CursorPixelPreview { Image = thumbnail, Cursor = cursor };
             picture.SetBounds(D(10), D(6), D(82), D(82)); card.Controls.Add(picture);
             picture.Disposed += delegate { picture.Image.Dispose(); };
             var label = new Label { Text = Setup.Names[i], AutoSize = true, Font = new Font(Font, FontStyle.Bold), Cursor = cursor };
@@ -644,6 +649,21 @@ internal sealed class InstallerWindow : Form
 internal sealed class SmoothPanel : Panel
 {
     internal SmoothPanel() { DoubleBuffered = true; ResizeRedraw = true; }
+}
+
+internal sealed class CursorPixelPreview : Control
+{
+    internal Image Image;
+    internal CursorPixelPreview()
+    {
+        SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
+    }
+    protected override void OnPaint(PaintEventArgs e)
+    {
+        e.Graphics.Clear(Parent.BackColor);
+        if (Image == null) return;
+        e.Graphics.DrawImageUnscaled(Image, (ClientSize.Width - Image.Width) / 2, (ClientSize.Height - Image.Height) / 2);
+    }
 }
 
 internal sealed class BrandHeader : Panel

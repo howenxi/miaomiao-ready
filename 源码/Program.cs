@@ -559,7 +559,7 @@ internal sealed class CatPicker : Form
     readonly string[] names;
     readonly int[] defaults;
     readonly FlowLayoutPanel cats = new FlowLayoutPanel();
-    readonly Button apply = new AntButton { Text = "应用", Primary = true, DialogResult = DialogResult.OK };
+    readonly Button apply = new AntButton { Text = "应用指针", Primary = true, DialogResult = DialogResult.OK };
     int selected;
 
     internal CatPicker(XDocument catalog)
@@ -568,16 +568,18 @@ internal sealed class CatPicker : Form
         names = entries.ConvertAll(e => (string)e.Attribute("name")).ToArray();
         defaults = Array.ConvertAll(((string)catalog.Root.Attribute("defaults")).Split(','), int.Parse);
         Text = "喵喵就位 · 选择小猫";
-        Font = new Font("Microsoft YaHei", 10);
+        AutoScaleMode = AutoScaleMode.None; Font = new Font("Microsoft YaHei", 10.5f);
         BackColor = Color.FromArgb(255, 248, 239);
         StartPosition = FormStartPosition.CenterScreen;
-        FormBorderStyle = FormBorderStyle.FixedDialog;
+        FormBorderStyle = FormBorderStyle.None;
         MaximizeBox = false; MinimizeBox = false;
-        ClientSize = new Size(640, 526);
+        ClientSize = new Size(660, 592);
 
-        var title = new Label { Text = "选一只猫，再分配指针", Font = new Font(Font.FontFamily, 19.5f, FontStyle.Bold), AutoSize = true, Left = 24, Top = 14 };
+        var title = new Label { Text = "为指针挑选小猫", Font = new Font(Font.FontFamily, 19.5f, FontStyle.Bold), AutoSize = true, Left = 30, Top = 92 };
         Controls.Add(title);
-        cats.SetBounds(21, 61, 598, 74);
+        Controls.Add(new Label { Text = "先选小猫，再点下方场景分配。再次点击可取消。", AutoSize = true,
+            ForeColor = Color.FromArgb(113, 90, 73), Left = 32, Top = 140 });
+        cats.SetBounds(27, 174, 603, 70);
         cats.AutoScroll = true; cats.WrapContents = false;
         Controls.Add(cats);
         for (int i = 0; i < names.Length; i++)
@@ -596,22 +598,33 @@ internal sealed class CatPicker : Form
             catCard.Controls.Add(button); catCard.Controls.Add(avatar);
             cats.Controls.Add(catCard);
         }
-        Controls.Add(new Label { Text = "选中小猫后点击场景分配，再点一次取消。", AutoSize = true, Left = 24, Top = 142 });
+        Controls.Add(new Label { Text = "指针场景", Font = new Font(Font.FontFamily, 12, FontStyle.Bold), AutoSize = true, Left = 30, Top = 224 });
         for (int i = 0; i < Choices.Length; i++)
         {
-            int index = i, x = 24 + i % 2 * 302, y = 178 + i / 2 * 69;
-            var button = new AssignmentCard { Left = x, Top = y, Width = 289, Height = 60, Text = Setup.Names[i] };
+            int index = i, x = 30 + i % 2 * 306, y = 256 + i / 2 * 62;
+            var button = new AssignmentCard { Left = x, Top = y, Width = 294, Height = 54, Text = Setup.Names[i] };
             assignments[i] = button;
             button.Click += delegate { Choices[index] = Choices[index] == selected ? -1 : selected; RefreshChoices(); };
             Controls.Add(button);
         }
-        var current = new AntButton { Text = "使用当前搭配", Left = 24, Top = 472, Width = 145, Height = 36 };
+        var current = new AntButton { Text = "恢复推荐搭配", Left = 30, Top = 532, Width = 145, Height = 40 };
         current.Click += delegate { Array.Copy(defaults, Choices, Choices.Length); RefreshChoices(); };
-        var cancel = new AntButton { Text = "取消", Left = 427, Top = 472, Width = 88, Height = 36, DialogResult = DialogResult.Cancel };
-        apply.SetBounds(528, 472, 88, 36);
+        var cancel = new AntButton { Text = "取消", Left = 397, Top = 532, Width = 108, Height = 40, DialogResult = DialogResult.Cancel };
+        apply.SetBounds(518, 532, 108, 40);
+        Controls.Add(new Panel { Left = 30, Top = 514, Width = 600, Height = 1, BackColor = Color.FromArgb(229, 210, 190) });
         Controls.Add(current); Controls.Add(cancel); Controls.Add(apply);
-        count.SetBounds(188, 482, 220, 25); Controls.Add(count);
+        count.SetBounds(190, 543, 185, 25); Controls.Add(count);
         CancelButton = cancel; AcceptButton = apply;
+        float scale = InstallerWindow.WindowScale(this);
+        var brand = InstallerWindow.AddBrandHeader(this);
+        Scale(new SizeF(scale, scale));
+        Font = new Font("Microsoft YaHei", 10.5f * scale);
+        title.Font = new Font(Font.FontFamily, 19.5f * scale, FontStyle.Bold);
+        brand.Font = new Font(Font.FontFamily, 21 * scale, FontStyle.Bold);
+        foreach (Control card in cats.Controls)
+            card.Controls[0].Font = new Font(Font.FontFamily, 12 * scale, FontStyle.Bold);
+        using (var path = AntShape.Rounded(new RectangleF(0, 0, Width, Height), 18 * Math.Max(1, scale)))
+            Region = new Region(path);
         Array.Copy(defaults, Choices, Choices.Length);
         RefreshChoices();
     }
@@ -624,7 +637,7 @@ internal sealed class CatPicker : Form
             button.SelectedStyle = selected == i; button.Invalidate();
         }
         int assigned = Array.FindAll(Choices, n => n >= 0).Length;
-        count.Text = "已分配 " + assigned + " / " + Choices.Length; apply.Enabled = assigned > 0;
+        count.Text = "已分配 " + assigned + " 项"; apply.Enabled = assigned > 0;
         for (int i = 0; i < Choices.Length; i++)
         {
             int cat = Choices[i], shown = cat < 0 ? selected : cat;
@@ -675,11 +688,11 @@ internal sealed class CatPicker : Form
 
 internal sealed class InstallerWindow : Form
 {
-    readonly Color Ink = Color.FromArgb(48, 36, 29), Muted = Color.FromArgb(113, 90, 73), Accent = Color.FromArgb(183, 139, 88);
+    readonly Color Ink = Color.FromArgb(48, 36, 29), Muted = Color.FromArgb(113, 90, 73), Accent = Color.FromArgb(152, 80, 31);
     readonly Label title = new Label(), subtitle = new Label(), step = new Label(), percent = new Label();
     readonly Panel loading = new SmoothPanel(), scenarios = new Panel();
     readonly Button done = new AntButton { Primary = true }, restore = new AntButton();
-    readonly Button closeWindow = new AntButton();
+
     readonly Panel sizeControls = new Panel();
     readonly AntButton[] presets = { new AntButton { Text = "小" }, new AntButton { Text = "中" }, new AntButton { Text = "大" } };
     readonly int[] presetPixels = {25, 35, 45};
@@ -703,11 +716,7 @@ internal sealed class InstallerWindow : Form
         Text = "喵喵就位";
         Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath);
         AutoScaleMode = AutoScaleMode.None;
-        using (var graphics = CreateGraphics()) displayScale = graphics.DpiX / 96f;
-        string previewScale = Environment.GetEnvironmentVariable("MIAOMIAO_PREVIEW_SCALE");
-        if (!string.IsNullOrEmpty(previewScale)) displayScale = float.Parse(previewScale, System.Globalization.CultureInfo.InvariantCulture);
-        displayScale = Math.Min(displayScale, (Screen.FromControl(this).WorkingArea.Width - 32) / 660f);
-        displayScale = Math.Min(displayScale, (Screen.FromControl(this).WorkingArea.Height - 32) / 754f);
+        displayScale = WindowScale(this);
         Font = new Font("Microsoft YaHei", 10);
         BackColor = Color.FromArgb(255, 248, 239); ForeColor = Ink;
         ClientSize = new Size(660, 424); FormBorderStyle = FormBorderStyle.None;
@@ -723,7 +732,7 @@ internal sealed class InstallerWindow : Form
         loading.SetBounds(32, 116, 596, 150); loading.Paint += DrawLoading; Controls.Add(loading);
         step.SetBounds(32, 272, 440, 28); step.ForeColor = Muted; Controls.Add(step);
         percent.SetBounds(545, 272, 80, 28); percent.TextAlign = ContentAlignment.TopRight; percent.ForeColor = Muted; Controls.Add(percent);
-        done.Text = "完成"; done.SetBounds(518, 564, 108, 40); done.Click += delegate { Close(); }; done.Visible = false; Controls.Add(done);
+        done.Text = "关闭窗口"; done.SetBounds(518, 564, 108, 40); done.Click += delegate { Close(); }; done.Visible = false; Controls.Add(done);
         restore.Text = "恢复原鼠标"; restore.SetBounds(366, 564, 140, 40); restore.Visible = false;
         restore.Click += delegate {
             try { Setup.Restore(); scenarios.Visible = false; title.Text = "原来的鼠标已回来"; subtitle.Text = "已恢复首次安装前的鼠标方案。"; restore.Visible = false; }
@@ -731,16 +740,7 @@ internal sealed class InstallerWindow : Form
         }; Controls.Add(restore);
         scenarios.SetBounds(30, 128, 600, 408); scenarios.Visible = false; Controls.Add(scenarios);
         foreach (Control control in Controls) control.Top += 64;
-        var header = new BrandHeader { Dock = DockStyle.Top, Width = 660, Height = 64 };
-        var avatar = new PictureBox { Image = BrandAvatar(), SizeMode = PictureBoxSizeMode.Zoom };
-        avatar.SetBounds(27, 5, 58, 58); header.Controls.Add(avatar);
-        avatar.Disposed += delegate { avatar.Image.Dispose(); };
-        var brand = new Label { Text = "喵喵就位", AutoSize = false, BackColor = Color.Transparent, Font = new Font(Font.FontFamily, 17, FontStyle.Bold) };
-        brand.SetBounds(115, 13, 280, 42); header.Controls.Add(brand);
-        closeWindow.Text = "×"; closeWindow.SetBounds(598, 15, 36, 34); closeWindow.Anchor = AnchorStyles.Top | AnchorStyles.Right;
-        closeWindow.Click += delegate { Close(); }; header.Controls.Add(closeWindow);
-        header.MouseDown += DragWindow; brand.MouseDown += DragWindow;
-        Controls.Add(header);
+        var brand = AddBrandHeader(this);
         timer.Interval = 35; timer.Tick += Tick;
         Shown += delegate { if (working) timer.Start(); };
         FormClosing += delegate(object sender, FormClosingEventArgs e) { if (working) e.Cancel = true; };
@@ -750,12 +750,12 @@ internal sealed class InstallerWindow : Form
         brand.Font = new Font(Font.FontFamily, 21 * displayScale, FontStyle.Bold);
         sizeControls.SetBounds(D(30), D(173), D(600), D(52));
         sizeLabel.SetBounds(0, D(13), D(145), D(28));
-        applySize.SetBounds(D(465), D(7), D(135), D(37));
+        applySize.SetBounds(D(465), D(7), D(135), D(40));
         sizeControls.Controls.Add(sizeLabel); sizeControls.Controls.Add(applySize);
         for (int i = 0; i < presets.Length; i++)
         {
             int chosenPreset = i;
-            presets[i].SetBounds(D(145 + i * 96), D(7), D(86), D(37));
+            presets[i].SetBounds(D(145 + i * 96), D(7), D(86), D(40));
             presets[i].Click += delegate
             {
                 if (previewBusy || selectedPixels == presetPixels[chosenPreset]) return;
@@ -788,11 +788,6 @@ internal sealed class InstallerWindow : Form
     }
     [DllImport("user32.dll")] static extern bool ReleaseCapture();
     [DllImport("user32.dll")] static extern IntPtr SendMessage(IntPtr window, uint message, IntPtr wParam, IntPtr lParam);
-    void DragWindow(object sender, MouseEventArgs e)
-    {
-        if (e.Button != MouseButtons.Left) return;
-        ReleaseCapture(); SendMessage(Handle, 0xA1, new IntPtr(2), IntPtr.Zero);
-    }
     protected override void OnSizeChanged(EventArgs e)
     {
         base.OnSizeChanged(e);
@@ -801,7 +796,36 @@ internal sealed class InstallerWindow : Form
         { var old = Region; Region = new Region(path); if (old != null) old.Dispose(); }
     }
     int D(int value) { return (int)Math.Round(value * displayScale); }
-    Image BrandAvatar()
+    internal static float WindowScale(Form window)
+    {
+        float scale;
+        using (var graphics = window.CreateGraphics()) scale = graphics.DpiX / 96f;
+        string previewScale = Environment.GetEnvironmentVariable("MIAOMIAO_PREVIEW_SCALE");
+        if (!string.IsNullOrEmpty(previewScale)) scale = float.Parse(previewScale, System.Globalization.CultureInfo.InvariantCulture);
+        var area = Screen.FromControl(window).WorkingArea;
+        return Math.Min(scale, Math.Min((area.Width - 32) / 660f, (area.Height - 32) / 754f));
+    }
+    internal static Label AddBrandHeader(Form window)
+    {
+        var closeWindow = new AntButton();
+        MouseEventHandler drag = delegate(object sender, MouseEventArgs e)
+        {
+            if (e.Button != MouseButtons.Left) return;
+            ReleaseCapture(); SendMessage(window.Handle, 0xA1, new IntPtr(2), IntPtr.Zero);
+        };
+        var header = new BrandHeader { Dock = DockStyle.Top, Width = 660, Height = 64 };
+        var avatar = new PictureBox { Image = BrandAvatar(), SizeMode = PictureBoxSizeMode.Zoom };
+        avatar.SetBounds(27, 5, 58, 58); header.Controls.Add(avatar);
+        avatar.Disposed += delegate { avatar.Image.Dispose(); };
+        var brand = new Label { Text = "喵喵就位", AutoSize = false, BackColor = Color.Transparent, Font = new Font(window.Font.FontFamily, 17, FontStyle.Bold) };
+        brand.SetBounds(115, 13, 280, 42); header.Controls.Add(brand);
+        closeWindow.Text = "×"; closeWindow.SetBounds(598, 15, 36, 34); closeWindow.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+        closeWindow.Click += delegate { window.Close(); }; header.Controls.Add(closeWindow);
+        header.MouseDown += drag; brand.MouseDown += drag; avatar.MouseDown += drag;
+        window.Controls.Add(header);
+        return brand;
+    }
+    static Image BrandAvatar()
     {
         using (var stream = Setup.Resource("brand"))
         using (var source = Image.FromStream(stream))

@@ -36,3 +36,5 @@ Remove-Item Env:MIAOMIAO_PREVIEW_SCALE
 每个 cursor 可选 contentScale（0.3～1，默认1）。文字输入建议先用0.65，热点采用同一缩放变换，透明画布大小保持不变。
 
 构建时另嵌入theme.xml，保存选中类型的原图热点，并把CursorEncoder编译进EXE供运行时调大小。请通过build-windows.ps1编译，单独只编译Program.cs不再具备完整资源和依赖。
+
+2026-11-19 当前尺寸更新：25/35/45采用64px单帧CUR和ConvertPixels，避免32px资源截断。应用后用SetSystemCursor设置拥有的原生句柄（该API成功后接管句柄）；预览用同一原生资源DrawIconEx绘制。Windows重新载入主题会回到系统默认缩放，可重新运行安装器恢复保存尺寸。

@@ -45,6 +45,15 @@ public static class CursorEncoder
     }
     public static void ConvertScaled(string sourcePath, string cursorPath, int hotX, int hotY, float contentScale)
     {
+        Encode(sourcePath, cursorPath, hotX, hotY, contentScale, new int[] {32, 48, 64, 96});
+    }
+    public static void ConvertPixels(string sourcePath, string cursorPath, int hotX, int hotY, int pixels)
+    {
+        if (pixels < 20 || pixels > 48) throw new ArgumentOutOfRangeException("pixels");
+        Encode(sourcePath, cursorPath, hotX, hotY, pixels / 62f, new int[] {64});
+    }
+    static void Encode(string sourcePath, string cursorPath, int hotX, int hotY, float contentScale, int[] sizes)
+    {
         if (float.IsNaN(contentScale) || contentScale < .3f || contentScale > 1f) throw new ArgumentException("指针内容比例须在 0.3 到 1 之间。");
         using (var source = new Bitmap(sourcePath))
         {
@@ -60,7 +69,6 @@ public static class CursorEncoder
             }
             if (!transparent || right < left) throw new ArgumentException("需要带真实透明背景的 PNG。");
             var crop = Rectangle.FromLTRB(left, top, right + 1, bottom + 1);
-            int[] sizes = { 32, 48, 64, 96 };
             var frames = new byte[sizes.Length][];
             for (int i = 0; i < sizes.Length; i++) using (var image = Resize(source, crop, sizes[i], contentScale)) frames[i] = Dib(image);
             using (var writer = new BinaryWriter(File.Create(cursorPath)))

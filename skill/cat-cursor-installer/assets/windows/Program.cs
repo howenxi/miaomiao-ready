@@ -17,7 +17,7 @@ internal static class Program
         {
             Setup.Root = Path.GetFullPath(args[1]);
             Setup.Prepare(); Setup.CopyCursors(); Setup.SaveBackup();
-            try { Setup.Apply(); Setup.ApplySize(12); Setup.ApplySize(30); }
+            try { Setup.Apply(); Setup.ApplySize(25); Setup.VerifyNativeSizes(); Setup.ApplySize(45); Setup.VerifyNativeSizes(); }
             finally { Setup.Restore(); }
             Setup.VerifyRestored();
             File.WriteAllText(Path.Combine(Setup.Root, "integration-passed.txt"), "Applied all eight cursors, refreshed Windows, restored original values, refreshed Windows again, verified registry values and types match backup.");
@@ -64,15 +64,15 @@ internal static class Setup
     internal static bool Changed;
     internal static bool SelfTesting;
     internal static string SizedFolder;
-    internal static int PreviewPixels = 20;
+    internal static int PreviewPixels = 35;
     internal static string CursorPath(int index)
     {
         return Path.Combine(SizedFolder ?? Path.Combine(Root, "cursors-v1"), Names[index] + ".cur");
     }
     internal static void PrepareSize(int pixels)
     {
-        if (pixels < 12 || pixels > 30) throw new ArgumentOutOfRangeException("pixels");
-        string folder = Path.Combine(Root, "cursors-v1", "size-" + pixels);
+        if (pixels != 25 && pixels != 35 && pixels != 45) throw new ArgumentOutOfRangeException("pixels");
+        string folder = Path.Combine(Root, "cursors-v1", "size-native-v2-" + pixels);
         if (!Directory.Exists(folder))
         {
             string staging = folder + "." + Guid.NewGuid().ToString("N");
@@ -88,7 +88,7 @@ internal static class Setup
                     using (var source = Resource("picture" + index))
                     using (var target = File.Create(png)) source.CopyTo(target);
                     string path = Path.Combine(staging, Names[index] + ".cur");
-                    CursorEncoder.ConvertScaled(png, path, (int)item.Attribute("x"), (int)item.Attribute("y"), pixels / 30f);
+                    CursorEncoder.ConvertPixels(png, path, (int)item.Attribute("x"), (int)item.Attribute("y"), pixels);
                     IntPtr handle = LoadCursorFromFile(path);
                     if (handle == IntPtr.Zero) throw new IOException("预览指针生成失败");
                     DestroyCursor(handle); File.Delete(png);
@@ -125,7 +125,64 @@ internal static class Setup
     [DllImport("user32.dll")] static extern int GetSystemMetrics(int index);
     internal static IntPtr LoadPreviewCursor(string path)
     {
-        return LoadImage(IntPtr.Zero, path, 2, GetSystemMetrics(13), GetSystemMetrics(14), 0x10);
+        return LoadImage(IntPtr.Zero, path, 2, 0, 0, 0x10);
+    }
+    [DllImport("user32.dll", SetLastError = true)] static extern bool SetSystemCursor(IntPtr cursor, uint id);
+    [DllImport("user32.dll")] static extern IntPtr LoadCursor(IntPtr instance, IntPtr id);
+    internal static void VerifyNativeSizes()
+    {
+        uint[] ids = {32512, 32513, 32649, 32648, 32514, 32646, 32644, 32645};
+        using (var stream = Resource("theme"))
+        {
+            foreach (var item in XDocument.Load(stream).Root.Elements("cursor"))
+            {
+                int index = (int)item.Attribute("index");
+                Size size = NativeCursorSize(LoadCursor(IntPtr.Zero, new IntPtr(ids[index])));
+                if (size.Width != 64 || size.Height != 64) throw new IOException("系统重缩放了鼠标：" + Names[index]);
+            }
+        }
+    }
+    [StructLayout(LayoutKind.Sequential)]
+    struct CursorInfo { public bool Icon; public uint X, Y; public IntPtr Mask, Color; }
+    [DllImport("user32.dll")] static extern bool GetIconInfo(IntPtr cursor, out CursorInfo info);
+    [DllImport("gdi32.dll")] static extern bool DeleteObject(IntPtr handle);
+    [DllImport("user32.dll", SetLastError = true)] static extern bool DrawIconEx(IntPtr dc, int x, int y, IntPtr icon, int width, int height, uint step, IntPtr brush, uint flags);
+    internal static Image RenderCursor(IntPtr handle)
+    {
+        Size size = NativeCursorSize(handle);
+        var image = new Bitmap(size.Width, size.Height, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+        using (var graphics = Graphics.FromImage(image))
+        {
+            IntPtr dc = graphics.GetHdc();
+            try { if (!DrawIconEx(dc, 0, 0, handle, size.Width, size.Height, 0, IntPtr.Zero, 3)) throw new IOException("无法绘制鼠标预览"); }
+            finally { graphics.ReleaseHdc(dc); }
+        }
+        return image;
+    }
+    internal static Size NativeCursorSize(IntPtr handle)
+    {
+        CursorInfo info;
+        if (!GetIconInfo(handle, out info)) throw new IOException("无法读取鼠标尺寸");
+        try
+        {
+            using (var bitmap = Image.FromHbitmap(info.Color)) return bitmap.Size;
+        }
+        finally { if (info.Color != IntPtr.Zero) DeleteObject(info.Color); if (info.Mask != IntPtr.Zero) DeleteObject(info.Mask); }
+    }
+    static void ApplyNativeCursorSizes()
+    {
+        uint[] ids = {32512, 32513, 32649, 32648, 32514, 32646, 32644, 32645};
+        using (var key = Registry.CurrentUser.OpenSubKey(CursorKey))
+        {
+            for (int i = 0; i < Roles.Length; i++)
+            {
+                string path = Environment.ExpandEnvironmentVariables(Convert.ToString(key.GetValue(Roles[i], "")));
+                if (!path.StartsWith(Root + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)) continue;
+                IntPtr handle = LoadPreviewCursor(path);
+                if (handle == IntPtr.Zero) throw new IOException("无法载入鼠标：" + Names[i]);
+                if (!SetSystemCursor(handle, ids[i])) { DestroyCursor(handle); throw new IOException("系统鼠标尺寸应用失败：" + Names[i]); }
+            }
+        }
     }
     [DllImport("user32.dll")] internal static extern bool DestroyCursor(IntPtr cursor);
 
@@ -196,7 +253,7 @@ internal static class Setup
         }
         string previousFolder = SizedFolder;
         int previousSize = PreviewPixels;
-        try { foreach (int size in new int[] {12, 20, 30}) PrepareSize(size); }
+        try { foreach (int size in new int[] {25, 35, 45}) PrepareSize(size); }
         finally { SizedFolder = previousFolder; PreviewPixels = previousSize; }
     }
     internal static void Apply()
@@ -205,7 +262,7 @@ internal static class Setup
         {
             int saved;
             string setting = Path.Combine(Root, "cursors-v1", "size.txt");
-            if (File.Exists(setting) && int.TryParse(File.ReadAllText(setting), out saved) && saved >= 12 && saved <= 30) PrepareSize(saved);
+            if (File.Exists(setting) && int.TryParse(File.ReadAllText(setting), out saved)) PrepareSize(saved <= 25 ? 25 : saved <= 35 ? 35 : 45); else PrepareSize(35);
         }
         Changed = true;
         using (var key = Registry.CurrentUser.CreateSubKey(CursorKey))
@@ -225,7 +282,7 @@ internal static class Setup
             key.SetValue("", "喵喵就位", RegistryValueKind.String);
             key.SetValue("Scheme Source", 1, RegistryValueKind.DWord);
         }
-        Reload();
+        Reload(); ApplyNativeCursorSizes();
     }
     static void Reload()
     {
@@ -269,7 +326,7 @@ internal static class Setup
                 key.SetValue(name, value, kind);
             }
         }
-        Reload();
+        Reload(); ApplyNativeCursorSizes();
     }
 }
 
@@ -282,13 +339,13 @@ internal sealed class InstallerWindow : Form
     readonly Button closeWindow = new AntButton();
     readonly Panel sizeControls = new Panel();
     readonly AntButton[] presets = { new AntButton { Text = "小" }, new AntButton { Text = "中" }, new AntButton { Text = "大" } };
-    readonly int[] presetPixels = {12, 20, 30};
-    int selectedPixels = 20;
+    readonly int[] presetPixels = {25, 35, 45};
+    int selectedPixels = 35;
     bool previewBusy;
     string previewError;
     readonly Label sizeLabel = new Label();
     readonly Button applySize = new AntButton { Primary = true, Text = "应用大小" };
-    int appliedPixels = 20;
+    int appliedPixels = 35;
     readonly System.Windows.Forms.Timer timer = new System.Windows.Forms.Timer();
     readonly Image runner;
     readonly float displayScale;
@@ -549,8 +606,7 @@ internal sealed class InstallerWindow : Form
             if (handle == IntPtr.Zero) throw new IOException("无法加载试用指针");
             var cursor = new Cursor(handle); card.Cursor = cursor;
             card.Disposed += delegate { cursor.Dispose(); Setup.DestroyCursor(handle); };
-            Image thumbnail = new Bitmap(cursor.Size.Width, cursor.Size.Height);
-            using (var graphics = Graphics.FromImage(thumbnail)) cursor.Draw(graphics, new Rectangle(Point.Empty, cursor.Size));
+            Image thumbnail = Setup.RenderCursor(handle);
             var picture = new PictureBox { Image = thumbnail, SizeMode = PictureBoxSizeMode.CenterImage, Cursor = cursor };
             picture.SetBounds(D(10), D(6), D(82), D(82)); card.Controls.Add(picture);
             picture.Disposed += delegate { picture.Image.Dispose(); };

@@ -554,7 +554,7 @@ internal static class Setup
 internal sealed class CatPicker : Form
 {
     internal readonly int[] Choices = new int[8];
-    readonly Label count = new Label { AutoSize = true };
+    readonly Label count = new Label { AutoSize = true, ForeColor = Color.FromArgb(113, 90, 73) };
     readonly AssignmentCard[] assignments = new AssignmentCard[8];
     readonly string[] names;
     readonly int[] defaults;
@@ -569,13 +569,13 @@ internal sealed class CatPicker : Form
         defaults = Array.ConvertAll(((string)catalog.Root.Attribute("defaults")).Split(','), int.Parse);
         Text = "喵喵就位 · 选择小猫";
         Font = new Font("Microsoft YaHei", 10);
-        BackColor = Color.FromArgb(255, 250, 244);
+        BackColor = Color.FromArgb(255, 248, 239);
         StartPosition = FormStartPosition.CenterScreen;
         FormBorderStyle = FormBorderStyle.FixedDialog;
         MaximizeBox = false; MinimizeBox = false;
         ClientSize = new Size(640, 526);
 
-        var title = new Label { Text = "选一只猫，再分配指针", Font = new Font(Font, FontStyle.Bold), AutoSize = true, Left = 24, Top = 22 };
+        var title = new Label { Text = "选一只猫，再分配指针", Font = new Font(Font.FontFamily, 19.5f, FontStyle.Bold), AutoSize = true, Left = 24, Top = 14 };
         Controls.Add(title);
         cats.SetBounds(21, 61, 598, 74);
         cats.AutoScroll = true; cats.WrapContents = false;
@@ -583,7 +583,7 @@ internal sealed class CatPicker : Form
         for (int i = 0; i < names.Length; i++)
         {
             int cat = i;
-            var button = new AntButton { Text = names[i], Width = 135, Height = 60 };
+            var button = new AntButton { Text = names[i], Font = new Font(Font.FontFamily, 12, FontStyle.Bold), Width = 135, Height = 60 };
             button.Click += delegate { selected = cat; RefreshChoices(); };
             var catCard = new Panel { Width = 138, Height = 60 };
             var avatar = new PictureBox { Width = 42, Height = 42, Left = 5, Top = 8, SizeMode = PictureBoxSizeMode.Zoom };
@@ -621,7 +621,7 @@ internal sealed class CatPicker : Form
         for (int i = 0; i < names.Length; i++)
         {
             var button = (AntButton)cats.Controls[i].Controls[0];
-            button.Primary = selected == i; button.Invalidate();
+            button.SelectedStyle = selected == i; button.Invalidate();
         }
         int assigned = Array.FindAll(Choices, n => n >= 0).Length;
         count.Text = "已分配 " + assigned + " / " + Choices.Length; apply.Enabled = assigned > 0;
@@ -675,7 +675,7 @@ internal sealed class CatPicker : Form
 
 internal sealed class InstallerWindow : Form
 {
-    readonly Color Ink = Color.FromArgb(55, 46, 37), Muted = Color.FromArgb(133, 114, 93), Accent = Color.FromArgb(183, 139, 88);
+    readonly Color Ink = Color.FromArgb(48, 36, 29), Muted = Color.FromArgb(113, 90, 73), Accent = Color.FromArgb(183, 139, 88);
     readonly Label title = new Label(), subtitle = new Label(), step = new Label(), percent = new Label();
     readonly Panel loading = new SmoothPanel(), scenarios = new Panel();
     readonly Button done = new AntButton { Primary = true }, restore = new AntButton();
@@ -709,7 +709,7 @@ internal sealed class InstallerWindow : Form
         displayScale = Math.Min(displayScale, (Screen.FromControl(this).WorkingArea.Width - 32) / 660f);
         displayScale = Math.Min(displayScale, (Screen.FromControl(this).WorkingArea.Height - 32) / 754f);
         Font = new Font("Microsoft YaHei", 10);
-        BackColor = Color.FromArgb(255, 250, 244); ForeColor = Ink;
+        BackColor = Color.FromArgb(255, 248, 239); ForeColor = Ink;
         ClientSize = new Size(660, 424); FormBorderStyle = FormBorderStyle.None;
         AutoScroll = false;
         MaximizeBox = false; StartPosition = FormStartPosition.CenterScreen;
@@ -745,8 +745,8 @@ internal sealed class InstallerWindow : Form
         Shown += delegate { if (working) timer.Start(); };
         FormClosing += delegate(object sender, FormClosingEventArgs e) { if (working) e.Cancel = true; };
         Scale(new SizeF(displayScale, displayScale));
-        Font = new Font("Microsoft YaHei", 10 * displayScale);
-        title.Font = new Font(Font.FontFamily, 19 * displayScale, FontStyle.Bold);
+        Font = new Font("Microsoft YaHei", 10.5f * displayScale);
+        title.Font = new Font(Font.FontFamily, 19.5f * displayScale, FontStyle.Bold);
         brand.Font = new Font(Font.FontFamily, 21 * displayScale, FontStyle.Bold);
         sizeControls.SetBounds(D(30), D(173), D(600), D(52));
         sizeLabel.SetBounds(0, D(13), D(145), D(28));
@@ -813,7 +813,7 @@ internal sealed class InstallerWindow : Form
     {
         base.OnPaint(e);
         if (!scenarios.Visible) return;
-        using (var pen = new Pen(Color.FromArgb(230, 208, 183))) e.Graphics.DrawLine(pen, D(30), done.Top - D(18), ClientSize.Width - D(30), done.Top - D(18));
+        using (var pen = new Pen(Color.FromArgb(229, 210, 190))) e.Graphics.DrawLine(pen, D(30), done.Top - D(18), ClientSize.Width - D(30), done.Top - D(18));
     }
     internal static Image ResizePicture(Image original, int size, bool trimTransparent = false)
     {
@@ -919,7 +919,7 @@ internal sealed class InstallerWindow : Form
     void RefreshPresets()
     {
         sizeLabel.Text = "指针大小";
-        for (int i = 0; i < presets.Length; i++) { presets[i].Primary = selectedPixels == presetPixels[i]; presets[i].Invalidate(); }
+        for (int i = 0; i < presets.Length; i++) { presets[i].SelectedStyle = selectedPixels == presetPixels[i]; presets[i].Invalidate(); }
         applySize.Enabled = !previewBusy && selectedPixels != appliedPixels;
     }
     void RebuildSizePreview()
@@ -960,7 +960,7 @@ internal sealed class InstallerWindow : Form
         {
             int index = i;
             if (!Setup.Enabled(i)) continue;
-            var card = new ThemeCard { BackColor = Color.FromArgb(252, 246, 237) };
+            var card = new ThemeCard { BackColor = Color.FromArgb(255, 252, 247) };
             card.Tag = i;
             card.SetBounds(D(cardIndex % 2 * 306), D(cardIndex++ / 2 * 100), D(294), D(90));
             IntPtr handle = Setup.LoadPreviewCursor(Setup.CursorPath(i));
@@ -971,7 +971,7 @@ internal sealed class InstallerWindow : Form
             var picture = new CursorPixelPreview { Image = thumbnail, Cursor = cursor };
             picture.SetBounds(D(10), D(6), D(82), D(82)); card.Controls.Add(picture);
             picture.Disposed += delegate { picture.Image.Dispose(); };
-            var label = new Label { Text = Setup.Names[i], AutoSize = true, Font = new Font(Font, FontStyle.Bold), Cursor = cursor };
+            var label = new Label { Text = Setup.Names[i], AutoSize = true, Font = new Font(Font.FontFamily, 12 * displayScale, FontStyle.Bold), Cursor = cursor };
             label.SetBounds(D(117), D(16), D(170), D(25)); card.Controls.Add(label);
             var description = new Label { Text = descriptions[i], ForeColor = Muted, Cursor = cursor };
             description.SetBounds(D(117), D(48), D(170), D(32)); card.Controls.Add(description);
@@ -1082,7 +1082,7 @@ internal sealed class ThemeCard : Panel
     {
         base.OnPaint(e); e.Graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
         using (var path = AntShape.Rounded(new RectangleF(1, 1, Width - 3, Height - 3), Height * .12f))
-        using (var pen = new Pen(Color.FromArgb(232, 210, 185))) e.Graphics.DrawPath(pen, path);
+        using (var pen = new Pen(Color.FromArgb(229, 210, 190))) e.Graphics.DrawPath(pen, path);
         using (var pen = new Pen(Color.FromArgb(225, 199, 170))) e.Graphics.DrawLine(pen, Width * .355f, Height * .2f, Width * .355f, Height * .8f);
     }
 }
@@ -1122,23 +1122,23 @@ internal sealed class AssignmentCard : Button
         e.Graphics.Clear(Parent.BackColor);
         e.Graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
         using (var outline = AntShape.Rounded(new RectangleF(1, 1, Width - 3, Height - 3), 11))
-        using (var fill = new SolidBrush(hovered ? Color.FromArgb(250, 234, 213) : Color.FromArgb(255, 252, 246)))
-        using (var stroke = new Pen(hovered || Focused ? Color.FromArgb(174, 105, 49) : Color.FromArgb(231, 209, 185)))
+        using (var fill = new SolidBrush(hovered ? Color.FromArgb(250, 234, 213) : Color.FromArgb(255, 252, 247)))
+        using (var stroke = new Pen(hovered || Focused ? Color.FromArgb(152, 80, 31) : Color.FromArgb(229, 210, 190)))
         { e.Graphics.FillPath(fill, outline); e.Graphics.DrawPath(stroke, outline); }
         if (Image != null) e.Graphics.DrawImageUnscaled(Image, 13, (Height - Image.Height) / 2);
-        TextRenderer.DrawText(e.Graphics, Text, Font, new Rectangle(64, 0, 110, Height), Color.FromArgb(58, 41, 29), TextFormatFlags.VerticalCenter);
+        TextRenderer.DrawText(e.Graphics, Text, Font, new Rectangle(64, 0, 110, Height), Color.FromArgb(48, 36, 29), TextFormatFlags.VerticalCenter);
         var badge = new Rectangle(177, 17, Width - 190, 26);
         using (var pill = AntShape.Rounded(badge, 13))
-        using (var fill = new SolidBrush(Assigned ? Color.FromArgb(246, 224, 194) : Color.FromArgb(242, 236, 227)))
+        using (var fill = new SolidBrush(Assigned ? Color.FromArgb(249, 226, 199) : Color.FromArgb(242, 236, 227)))
             e.Graphics.FillPath(fill, pill);
-        TextRenderer.DrawText(e.Graphics, Status, Font, badge, Color.FromArgb(103, 73, 50),
+        TextRenderer.DrawText(e.Graphics, Status, Font, badge, Color.FromArgb(121, 67, 24),
             TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
     }
 }
 
 internal sealed class AntButton : Button
 {
-    internal bool Primary;
+    internal bool Primary, SelectedStyle;
     bool hovered, pressed;
     internal AntButton()
     {
@@ -1156,13 +1156,13 @@ internal sealed class AntButton : Button
         e.Graphics.Clear(Parent.BackColor);
         e.Graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
         float unit = Height / 37f;
-        Color blue = Color.FromArgb(174, 105, 49), hover = Color.FromArgb(192, 125, 66), active = Color.FromArgb(143, 80, 34);
+        Color blue = Color.FromArgb(152, 80, 31), hover = Color.FromArgb(134, 69, 25), active = Color.FromArgb(143, 80, 34);
         Color state = pressed ? active : hovered ? hover : blue;
         if (!Enabled) state = Color.FromArgb(205, 184, 163);
         var rectangle = new RectangleF(1, 1, Width - 3, Height - 3);
         using (var shape = AntShape.Rounded(rectangle, 6 * unit))
-        using (Brush brush = Primary ? (Brush)new System.Drawing.Drawing2D.LinearGradientBrush(rectangle, Color.FromArgb(Math.Min(255, state.R + 16), Math.Min(255, state.G + 14), Math.Min(255, state.B + 12)), state, 90f) : new SolidBrush(Color.FromArgb(255, 252, 246)))
-        using (var pen = new Pen(Primary || hovered || pressed ? state : Color.FromArgb(219, 193, 166), Math.Max(1, unit)))
+        using (Brush brush = new SolidBrush(Primary ? state : SelectedStyle ? Color.FromArgb(249, 226, 199) : Color.FromArgb(255, 252, 247)))
+        using (var pen = new Pen(Primary || SelectedStyle || hovered || pressed ? state : Color.FromArgb(229, 210, 190), Math.Max(1, unit)))
         {
             e.Graphics.FillPath(brush, shape); e.Graphics.DrawPath(pen, shape);
         }
@@ -1171,7 +1171,7 @@ internal sealed class AntButton : Button
             using (var shape = AntShape.Rounded(new RectangleF(3, 3, Width - 7, Height - 7), 4 * unit))
             using (var pen = new Pen(Primary ? Color.White : blue)) { pen.DashStyle = System.Drawing.Drawing2D.DashStyle.Dot; e.Graphics.DrawPath(pen, shape); }
         }
-        TextRenderer.DrawText(e.Graphics, Text, Font, ClientRectangle, Primary ? Color.White : hovered ? hover : Color.FromArgb(98, 65, 40), TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+        TextRenderer.DrawText(e.Graphics, Text, Font, ClientRectangle, Primary ? Color.White : SelectedStyle ? Color.FromArgb(121, 67, 24) : Color.FromArgb(48, 36, 29), TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
     }
 }
 

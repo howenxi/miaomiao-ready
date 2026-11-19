@@ -83,9 +83,6 @@ $source = $source.Replace('int index = i;', 'if (!Setup.Selected[i]) continue; i
 $source = $source.Replace('D(i % 2 * 306), D(i / 2 * 100)', 'D(layoutIndex % 2 * 306), D(layoutIndex / 2 * 100)')
 $source = $source.Replace('八种', ($entries.Count.ToString()+'种')).Replace('Eight bundled cursors', 'Selected bundled cursors')
 $source = $source.Replace('两只小猫', '小猫们')
-$rows = [int][Math]::Ceiling($entries.Count / 2.0)
-$layout = 'ClientSize = new Size(D(660), D('+ (290 + $rows * 100) +')); scenarios.Height = D('+($rows * 100 + 8)+'); done.Top = D('+(228 + $rows * 100)+'); restore.Top = done.Top;'
-$source = $source.Replace('ClientSize = new Size(D(660), D(690));', $layout)
 $sourcePath = Join-Path $build 'Program.cs'
 [IO.File]::WriteAllText($sourcePath,$source,[Text.UTF8Encoding]::new($true))
 $compiler = Join-Path $env:WINDIR 'Microsoft.NET/Framework64/v4.0.30319/csc.exe'

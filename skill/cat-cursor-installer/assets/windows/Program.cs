@@ -554,8 +554,8 @@ internal static class Setup
 internal sealed class CatPicker : Form
 {
     internal readonly int[] Choices = new int[8];
-    readonly PictureBox[] pictures = new PictureBox[8];
-    readonly Button[] assignments = new Button[8];
+    readonly Label count = new Label { AutoSize = true };
+    readonly AssignmentCard[] assignments = new AssignmentCard[8];
     readonly string[] names;
     readonly int[] defaults;
     readonly FlowLayoutPanel cats = new FlowLayoutPanel();
@@ -573,11 +573,11 @@ internal sealed class CatPicker : Form
         StartPosition = FormStartPosition.CenterScreen;
         FormBorderStyle = FormBorderStyle.FixedDialog;
         MaximizeBox = false; MinimizeBox = false;
-        ClientSize = new Size(640, 474);
+        ClientSize = new Size(640, 526);
 
-        var title = new Label { Text = "选一只猫，再分配指针", Font = new Font(Font, FontStyle.Bold), AutoSize = true, Left = 24, Top = 20 };
+        var title = new Label { Text = "选一只猫，再分配指针", Font = new Font(Font, FontStyle.Bold), AutoSize = true, Left = 24, Top = 22 };
         Controls.Add(title);
-        cats.SetBounds(21, 52, 598, 74);
+        cats.SetBounds(21, 61, 598, 74);
         cats.AutoScroll = true; cats.WrapContents = false;
         Controls.Add(cats);
         for (int i = 0; i < names.Length; i++)
@@ -589,29 +589,28 @@ internal sealed class CatPicker : Form
             var avatar = new PictureBox { Width = 42, Height = 42, Left = 5, Top = 8, SizeMode = PictureBoxSizeMode.Zoom };
             using (var stream = Setup.Resource(i == defaults[0] ? "picture0" : "picture0-" + (i + 1)))
             using (var source = Image.FromStream(stream))
-                avatar.Image = new Bitmap(source, 42, 42);
+                avatar.Image = InstallerWindow.ResizePicture(source, 36, true);
             avatar.Disposed += delegate { avatar.Image.Dispose(); };
             avatar.Click += delegate { selected = cat; RefreshChoices(); };
             button.SetBounds(49, 5, 86, 48);
             catCard.Controls.Add(button); catCard.Controls.Add(avatar);
             cats.Controls.Add(catCard);
         }
-        Controls.Add(new Label { Text = "点击场景分配，再点一次取消。未分配的场景保留原指针。", AutoSize = true, Left = 24, Top = 130 });
+        Controls.Add(new Label { Text = "选中小猫后点击场景分配，再点一次取消。", AutoSize = true, Left = 24, Top = 142 });
         for (int i = 0; i < Choices.Length; i++)
         {
-            int index = i, x = 24 + i % 2 * 302, y = 164 + i / 2 * 59;
-            pictures[i] = new PictureBox { Left = x, Top = y, Width = 48, Height = 48, SizeMode = PictureBoxSizeMode.Zoom };
-            var button = new AntButton { Left = x + 52, Top = y, Width = 230, Height = 48 };
+            int index = i, x = 24 + i % 2 * 302, y = 178 + i / 2 * 69;
+            var button = new AssignmentCard { Left = x, Top = y, Width = 289, Height = 60, Text = Setup.Names[i] };
             assignments[i] = button;
-            EventHandler toggle = delegate { Choices[index] = Choices[index] == selected ? -1 : selected; RefreshChoices(); };
-            button.Click += toggle; pictures[i].Click += toggle;
-            Controls.Add(pictures[i]); Controls.Add(button);
+            button.Click += delegate { Choices[index] = Choices[index] == selected ? -1 : selected; RefreshChoices(); };
+            Controls.Add(button);
         }
-        var current = new AntButton { Text = "使用当前搭配", Left = 24, Top = 421, Width = 145, Height = 36 };
+        var current = new AntButton { Text = "使用当前搭配", Left = 24, Top = 472, Width = 145, Height = 36 };
         current.Click += delegate { Array.Copy(defaults, Choices, Choices.Length); RefreshChoices(); };
-        var cancel = new AntButton { Text = "取消", Left = 427, Top = 421, Width = 88, Height = 36, DialogResult = DialogResult.Cancel };
-        apply.SetBounds(528, 421, 88, 36);
+        var cancel = new AntButton { Text = "取消", Left = 427, Top = 472, Width = 88, Height = 36, DialogResult = DialogResult.Cancel };
+        apply.SetBounds(528, 472, 88, 36);
         Controls.Add(current); Controls.Add(cancel); Controls.Add(apply);
+        count.SetBounds(188, 482, 220, 25); Controls.Add(count);
         CancelButton = cancel; AcceptButton = apply;
         Array.Copy(defaults, Choices, Choices.Length);
         RefreshChoices();
@@ -624,16 +623,18 @@ internal sealed class CatPicker : Form
             var button = (AntButton)cats.Controls[i].Controls[0];
             button.Primary = selected == i; button.Invalidate();
         }
-        apply.Enabled = Array.Exists(Choices, n => n >= 0);
+        int assigned = Array.FindAll(Choices, n => n >= 0).Length;
+        count.Text = "已分配 " + assigned + " / " + Choices.Length; apply.Enabled = assigned > 0;
         for (int i = 0; i < Choices.Length; i++)
         {
             int cat = Choices[i], shown = cat < 0 ? selected : cat;
-            assignments[i].Text = Setup.Names[i] + " · " + (cat < 0 ? "保留原指针" : names[cat]);
-            var old = pictures[i].Image;
+            assignments[i].Status = cat < 0 ? "保留原指针" : names[cat]; assignments[i].Assigned = cat >= 0;
+            var old = assignments[i].Image;
             int variant = shown == defaults[i] ? 0 : shown + 1;
             using (var source = Setup.Resource(variant == 0 ? "picture" + i : "picture" + i + "-" + variant))
             using (var original = Image.FromStream(source))
-                pictures[i].Image = new Bitmap(original, 48, 48);
+                assignments[i].Image = InstallerWindow.ResizePicture(original, 36, true);
+            assignments[i].Invalidate();
             if (old != null) old.Dispose();
         }
     }
@@ -647,9 +648,12 @@ internal sealed class CatPicker : Form
             assignments[i].PerformClick();
             if (Choices[i] != selected) throw new IOException("猫咪分配失败");
         }
-        selected = Choices[0];
-        assignments[0].PerformClick();
-        if (Choices[0] != -1) throw new IOException("取消分配失败");
+        foreach (int i in new int[] {0, 5, 6, 7})
+        {
+            selected = Choices[i];
+            assignments[i].PerformClick();
+            if (Choices[i] != -1) throw new IOException("取消分配失败");
+        }
     }
 
     internal int[] ResourceChoices()
@@ -663,7 +667,7 @@ internal sealed class CatPicker : Form
     protected override void Dispose(bool disposing)
     {
         if (disposing)
-            foreach (var picture in pictures)
+            foreach (var picture in assignments)
                 if (picture != null && picture.Image != null) picture.Image.Dispose();
         base.Dispose(disposing);
     }
@@ -811,7 +815,7 @@ internal sealed class InstallerWindow : Form
         if (!scenarios.Visible) return;
         using (var pen = new Pen(Color.FromArgb(230, 208, 183))) e.Graphics.DrawLine(pen, D(30), done.Top - D(18), ClientSize.Width - D(30), done.Top - D(18));
     }
-    static Image ResizePicture(Image original, int size, bool trimTransparent = false)
+    internal static Image ResizePicture(Image original, int size, bool trimTransparent = false)
     {
         var bitmap = new Bitmap(size, size, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
         using (var graphics = Graphics.FromImage(bitmap))
@@ -898,13 +902,17 @@ internal sealed class InstallerWindow : Form
     void Finish()
     {
         timer.Stop(); working = false; loading.Visible = false; step.Visible = false; percent.Visible = false;
-        ClientSize = new Size(D(660), D(690));
+
         title.Text = "已完成，请试用鼠标效果";
         subtitle.Text = "把鼠标移到下面的区域，看看两只小猫的表现。";
-        BuildScenarios(); scenarios.Visible = true; done.Visible = true; restore.Visible = true;
-        scenarios.Top += D(64); done.Top += D(64); restore.Top += D(64);
-        int desiredHeight = ClientSize.Height + D(64);
-        ClientSize = new Size(ClientSize.Width, desiredHeight);
+        BuildScenarios();
+        int rows = (scenarios.Controls.Count + 1) / 2;
+        scenarios.Top = D(256);
+        scenarios.Height = D((rows - 1) * 100 + 90);
+        done.Top = restore.Top = scenarios.Bottom + D(48);
+        ClientSize = new Size(D(660), done.Bottom + D(20));
+        scenarios.Visible = true; done.Visible = true; restore.Visible = true;
+
         appliedPixels = Setup.PreviewPixels; selectedPixels = appliedPixels;
         RefreshPresets(); sizeControls.Visible = true;
     }
@@ -1094,6 +1102,40 @@ internal static class AntShape
 }
 
 // Native controls styled to match Ant Design's rounded primary/default buttons.
+internal sealed class AssignmentCard : Button
+{
+    internal string Status;
+    internal bool Assigned;
+    bool hovered;
+
+    internal AssignmentCard()
+    {
+        FlatStyle = FlatStyle.Flat;
+        SetStyle(ControlStyles.UserPaint | ControlStyles.OptimizedDoubleBuffer, true);
+    }
+
+    protected override void OnMouseEnter(EventArgs e) { base.OnMouseEnter(e); hovered = true; Invalidate(); }
+    protected override void OnMouseLeave(EventArgs e) { base.OnMouseLeave(e); hovered = false; Invalidate(); }
+
+    protected override void OnPaint(PaintEventArgs e)
+    {
+        e.Graphics.Clear(Parent.BackColor);
+        e.Graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+        using (var outline = AntShape.Rounded(new RectangleF(1, 1, Width - 3, Height - 3), 11))
+        using (var fill = new SolidBrush(hovered ? Color.FromArgb(250, 234, 213) : Color.FromArgb(255, 252, 246)))
+        using (var stroke = new Pen(hovered || Focused ? Color.FromArgb(174, 105, 49) : Color.FromArgb(231, 209, 185)))
+        { e.Graphics.FillPath(fill, outline); e.Graphics.DrawPath(stroke, outline); }
+        if (Image != null) e.Graphics.DrawImageUnscaled(Image, 13, (Height - Image.Height) / 2);
+        TextRenderer.DrawText(e.Graphics, Text, Font, new Rectangle(64, 0, 110, Height), Color.FromArgb(58, 41, 29), TextFormatFlags.VerticalCenter);
+        var badge = new Rectangle(177, 17, Width - 190, 26);
+        using (var pill = AntShape.Rounded(badge, 13))
+        using (var fill = new SolidBrush(Assigned ? Color.FromArgb(246, 224, 194) : Color.FromArgb(242, 236, 227)))
+            e.Graphics.FillPath(fill, pill);
+        TextRenderer.DrawText(e.Graphics, Status, Font, badge, Color.FromArgb(103, 73, 50),
+            TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
+    }
+}
+
 internal sealed class AntButton : Button
 {
     internal bool Primary;

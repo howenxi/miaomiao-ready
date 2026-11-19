@@ -42,3 +42,9 @@ Remove-Item Env:MIAOMIAO_PREVIEW_SCALE
 2026-11-19 后续修正（优先于上面旧尺寸说明）：预览改用CUR解码后1:1居中。Win11创建与系统复制阶段均使用SetThreadCursorCreationScaling(1)，阻止DPI二次缩放；finally恢复线程原策略。Win10缺少接口时沿用旧路径，未经真机验证。三档预览验证包括试用线程指针的像素/热点和实际绘制居中；应用验证核对共享句柄的画布、热点与轮廓，边缘允许2px误差，不把边缘处理误判成整体缩放，也不宣称屏幕最终合成像素完全一致。自检不会移动鼠标位置；检测自己线程的GetCursor，避免把其他前台应用的GetCursorInfo当成本程序的试用指针。
 
 官方接口说明：https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-setthreadcursorcreationscaling
+
+2026-11-19 实时倍率修复（优先于上述旧说明）：用户确认上一版仍有视频中的差异。实测注册表CursorBaseSize=32而0x2028读取的实时基准=48，单独SPI_SETCURSORS不会同步。调用SystemParametersInfoW(0x2029,0,(IntPtr)32,0)，再以0x2028读回确认、重载主题和设置原生句柄，解决系统指针额外1.5倍放大和重采样。0x2028/0x2029在本机Win11实测，不作为所有Windows版本兼容保证；失败返回可见错误并回滚。两个大小配置、值是否存在/类型以及实时基准均纳入首次备份、旧备份升级和恢复。flags=0由显式备份管理持久化，异步WM_SETTINGCHANGE通知避免同步广播等待。
+
+此前“系统共享副本必然处理边缘、允许2px误差”的解释已被严格实验否定：实时倍率归一后，三档共24个系统副本与CUR逐字节一致。已移除宽松检查。测试应覆盖从48/第2档安装、实时32与三档应用、恢复48/第2档和旧备份升级；截图对比要包含卡片外系统鼠标，而非只看卡片内自定义试用光标。
+
+独立实现参考（非微软公开兼容保证）：https://github.com/yuanyue1234/CursorSizeSlider/blob/main/docs/API.md

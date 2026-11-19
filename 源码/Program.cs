@@ -64,6 +64,7 @@ internal static class Setup
     internal static string Root = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "MiaoMiaoReady");
     internal static string Backup { get { return Path.Combine(Root, "original.xml"); } }
     const string CursorKey = @"Control Panel\Cursors";
+    const string AccessibilityKey = @"Software\Microsoft\Accessibility";
     internal static bool Changed;
     internal static bool SelfTesting;
     internal static string SizedFolder;
@@ -105,9 +106,12 @@ internal static class Setup
     internal static void ApplySize(int pixels)
     {
         var previous = new XElement("cursorBackup");
+        previous.SetAttributeValue("runtimeCursorBaseSize", RuntimeCursorBaseSize());
         foreach (string role in Roles) previous.Add(Capture(CursorKey, role));
         previous.Add(Capture(CursorKey, "")); previous.Add(Capture(CursorKey, "Scheme Source"));
         previous.Add(Capture(CursorKey + @"\Schemes", "喵喵就位"));
+        previous.Add(Capture(CursorKey, "CursorBaseSize"));
+        previous.Add(Capture(AccessibilityKey, "CursorSize"));
         try
         {
             PrepareSize(pixels); Apply();
@@ -121,6 +125,36 @@ internal static class Setup
     [DllImport("user32.dll", EntryPoint = "SystemParametersInfoW", ExactSpelling = true, SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     static extern bool SystemParametersInfo(uint action, uint param, IntPtr value, uint flags);
+    // These Windows size actions update/query the live accessibility multiplier.
+    // SPI_SETCURSORS only reloads artwork; writing the registry alone leaves the
+    // old live multiplier in place. Verify the live value, not just registry.
+    internal static int RuntimeCursorBaseSize()
+    {
+        IntPtr value = Marshal.AllocHGlobal(4);
+        try
+        {
+            Marshal.WriteInt32(value, 0);
+            return SystemParametersInfo(0x2028, 0, value, 0) ? Marshal.ReadInt32(value) : 0;
+        }
+        finally { Marshal.FreeHGlobal(value); }
+    }
+    static void SetRuntimeCursorBaseSize(int size, bool required)
+    {
+        if (size < 1 || size > 256) throw new IOException("鼠标基础大小不正确");
+        // Persistence is managed by our explicit registry snapshot. Flags=0
+        // avoids recreating values that were absent in the original settings.
+        if (!SystemParametersInfo(0x2029, 0, new IntPtr(size), 0) || RuntimeCursorBaseSize() != size)
+        {
+            if (required) throw new IOException("Windows 未能同步实时鼠标大小，请先在系统鼠标设置中将大小调到最小后重试。");
+        }
+    }
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, EntryPoint = "SendNotifyMessageW")]
+    static extern bool SendNotifyMessage(IntPtr window, uint message, IntPtr wParam, string lParam);
+    static void NotifyCursorSettings()
+    {
+        SendNotifyMessage(new IntPtr(0xffff), 0x1a, IntPtr.Zero, CursorKey);
+        SendNotifyMessage(new IntPtr(0xffff), 0x1a, IntPtr.Zero, AccessibilityKey);
+    }
     [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     internal static extern IntPtr LoadCursorFromFile(string path);
     [StructLayout(LayoutKind.Sequential)]
@@ -166,6 +200,11 @@ internal static class Setup
     [DllImport("user32.dll")] static extern IntPtr LoadCursor(IntPtr instance, IntPtr id);
     internal static void VerifyNativeSizes()
     {
+        if (RuntimeCursorBaseSize() != 32) throw new IOException("Windows 实时鼠标放大倍率尚未归一");
+        using (var key = Registry.CurrentUser.OpenSubKey(CursorKey))
+            if (Convert.ToInt32(key.GetValue("CursorBaseSize", 32)) != 32) throw new IOException("系统仍在额外放大鼠标");
+        using (var key = Registry.CurrentUser.OpenSubKey(AccessibilityKey))
+            if (key != null && Convert.ToInt32(key.GetValue("CursorSize", 1)) != 1) throw new IOException("系统仍在额外放大鼠标");
         uint[] ids = {32512, 32513, 32649, 32648, 32514, 32646, 32644, 32645};
         using (var stream = Resource("theme"))
         {
@@ -174,7 +213,7 @@ internal static class Setup
                 int index = (int)item.Attribute("index");
                 Size size = NativeCursorSize(LoadCursor(IntPtr.Zero, new IntPtr(ids[index])));
                 if (size.Width != 64 || size.Height != 64) throw new IOException("系统重缩放了鼠标：" + Names[index]);
-                VerifyCursorPixels(LoadCursor(IntPtr.Zero, new IntPtr(ids[index])), CursorPath(index), false);
+                VerifyCursorPixels(LoadCursor(IntPtr.Zero, new IntPtr(ids[index])), CursorPath(index));
             }
         }
     }
@@ -185,7 +224,7 @@ internal static class Setup
     [DllImport("gdi32.dll")] static extern bool DeleteDC(IntPtr dc);
     [DllImport("user32.dll")] static extern IntPtr SetCursor(IntPtr cursor);
     [DllImport("user32.dll")] static extern IntPtr GetCursor();
-    internal static void VerifyCursorPixels(IntPtr handle, string path, bool exact = true)
+    internal static void VerifyCursorPixels(IntPtr handle, string path)
     {
         byte[] expected = File.ReadAllBytes(path);
         int offset = BitConverter.ToInt32(expected, 18);
@@ -201,34 +240,12 @@ internal static class Setup
             byte[] actual = new byte[width * height * 4];
             var header = new BitmapReadInfo { Header = new BitmapHeader { Size = 40, Width = width, Height = height, Planes = 1, Bits = 32 }, Colors = new uint[256] };
             if (GetDIBits(dc, info.Color, 0, (uint)height, actual, ref header, 0) != height) throw new IOException("无法读取实际鼠标位图");
-            if (!exact)
-            {
-                // Windows can filter the shared system copy's boundary pixels.
-                // Check the visible size separately from byte-exact trial handles.
-                Rectangle expectedBounds = AlphaBounds(expected, offset + 40, width, height);
-                Rectangle actualBounds = AlphaBounds(actual, 0, width, height);
-                if (Math.Abs(expectedBounds.Width - actualBounds.Width) > 2 || Math.Abs(expectedBounds.Height - actualBounds.Height) > 2 ||
-                    Math.Abs(expectedBounds.Left - actualBounds.Left) > 2 || Math.Abs(expectedBounds.Top - actualBounds.Top) > 2)
-                    throw new IOException("系统鼠标图案大小与预览不一致：" + Path.GetFileName(path));
-                return;
-            }
             for (int i = 0; i < actual.Length; i++) if (actual[i] != expected[offset + 40 + i])
             {
                 throw new IOException("试用鼠标像素与预览不一致：" + Path.GetFileName(path));
             }
         }
         finally { DeleteDC(dc); if (info.Color != IntPtr.Zero) DeleteObject(info.Color); if (info.Mask != IntPtr.Zero) DeleteObject(info.Mask); }
-    }
-    static Rectangle AlphaBounds(byte[] pixels, int offset, int width, int height)
-    {
-        int left = width, top = height, right = -1, bottom = -1;
-        for (int y = 0; y < height; y++) for (int x = 0; x < width; x++)
-        {
-            if (pixels[offset + (y * width + x) * 4 + 3] < 80) continue;
-            left = Math.Min(left, x); right = Math.Max(right, x); top = Math.Min(top, y); bottom = Math.Max(bottom, y);
-        }
-        if (right < left) throw new IOException("鼠标图案为空");
-        return Rectangle.FromLTRB(left, top, right + 1, bottom + 1);
     }
     internal static void VerifyTrialCursor(IntPtr handle, string path)
     {
@@ -327,12 +344,45 @@ internal static class Setup
     }
     internal static void SaveBackup()
     {
-        if (File.Exists(Backup)) { XDocument.Load(Backup); return; }
+        if (File.Exists(Backup))
+        {
+            // Older backups did not contain size settings. Add only the missing
+            // values before changing them; never replace the original scheme.
+            var document = XDocument.Load(Backup);
+            bool changed = false;
+            foreach (var value in new XElement[] { Capture(CursorKey, "CursorBaseSize"), Capture(AccessibilityKey, "CursorSize") })
+            {
+                bool found = false;
+                foreach (var existing in document.Root.Elements("value"))
+                    if ((string)existing.Attribute("path") == (string)value.Attribute("path") && (string)existing.Attribute("name") == (string)value.Attribute("name")) found = true;
+                if (!found) { document.Root.Add(value); changed = true; }
+            }
+            if (changed)
+            {
+                string upgrade = Backup + ".size-upgrade";
+                document.Save(upgrade); File.Replace(upgrade, Backup, null);
+            }
+            if (document.Root.Attribute("runtimeCursorBaseSize") == null)
+            {
+                int size = 32;
+                foreach (var value in document.Root.Elements("value"))
+                    if ((string)value.Attribute("path") == CursorKey && (string)value.Attribute("name") == "CursorBaseSize" && (bool)value.Attribute("exists"))
+                        size = int.Parse(value.Value, System.Globalization.CultureInfo.InvariantCulture);
+                document.Root.SetAttributeValue("runtimeCursorBaseSize", size);
+                string upgrade = Backup + ".size-upgrade";
+                document.Save(upgrade); File.Replace(upgrade, Backup, null);
+            }
+            return;
+        }
         var root = new XElement("cursorBackup");
+        int runtimeSize = RuntimeCursorBaseSize();
+        root.SetAttributeValue("runtimeCursorBaseSize", runtimeSize > 0 ? runtimeSize : 32);
         foreach (string role in Roles) root.Add(Capture(CursorKey, role));
         root.Add(Capture(CursorKey, ""));
         root.Add(Capture(CursorKey, "Scheme Source"));
         root.Add(Capture(CursorKey + @"\Schemes", "喵喵就位"));
+        root.Add(Capture(CursorKey, "CursorBaseSize"));
+        root.Add(Capture(AccessibilityKey, "CursorSize"));
         string temp = Backup + ".tmp";
         new XDocument(root).Save(temp);
         File.Move(temp, Backup);
@@ -381,8 +431,14 @@ internal static class Setup
             using (var schemes = key.CreateSubKey("Schemes")) schemes.SetValue("喵喵就位", string.Join(",", paths), RegistryValueKind.String);
             key.SetValue("", "喵喵就位", RegistryValueKind.String);
             key.SetValue("Scheme Source", 1, RegistryValueKind.DWord);
+            // The three presets already encode their final physical pixel size.
+            // Accessibility magnification is independent of cursor-creation DPI
+            // and otherwise enlarges the installed system cursor a second time.
+            key.SetValue("CursorBaseSize", 32, RegistryValueKind.DWord);
         }
-        Reload(); ApplyNativeCursorSizes();
+        using (var key = Registry.CurrentUser.CreateSubKey(AccessibilityKey)) key.SetValue("CursorSize", 1, RegistryValueKind.DWord);
+        SetRuntimeCursorBaseSize(32, true);
+        Reload(); ApplyNativeCursorSizes(); NotifyCursorSettings();
     }
     static void Reload()
     {
@@ -395,7 +451,10 @@ internal static class Setup
     }
     internal static void VerifyRestored()
     {
-        foreach (var expected in XDocument.Load(Backup).Root.Elements("value"))
+        var backup = XDocument.Load(Backup);
+        int expectedSize = (int?)backup.Root.Attribute("runtimeCursorBaseSize") ?? 0;
+        if (expectedSize > 0 && RuntimeCursorBaseSize() != expectedSize) throw new IOException("系统实时鼠标大小恢复验证失败");
+        foreach (var expected in backup.Root.Elements("value"))
         {
             var actual = Capture((string)expected.Attribute("path"), (string)expected.Attribute("name"));
             if (!XNode.DeepEquals(expected, actual)) throw new IOException("恢复验证失败：" + (string)expected.Attribute("name"));
@@ -412,8 +471,9 @@ internal static class Setup
         foreach (var element in document.Root.Elements("value"))
         {
             string path = (string)element.Attribute("path");
-            if (path != CursorKey && path != CursorKey + @"\Schemes") throw new IOException("备份格式不正确。");
+            if (path != CursorKey && path != CursorKey + @"\Schemes" && path != AccessibilityKey) throw new IOException("备份格式不正确。");
             string name = (string)element.Attribute("name");
+            if (path == AccessibilityKey && name != "CursorSize") throw new IOException("备份大小设置不正确。");
             using (var key = Registry.CurrentUser.CreateSubKey(path))
             {
                 if (!(bool)element.Attribute("exists")) { key.DeleteValue(name, false); continue; }
@@ -426,7 +486,9 @@ internal static class Setup
                 key.SetValue(name, value, kind);
             }
         }
-        Reload(); ApplyNativeCursorSizes();
+        int originalSize = (int?)document.Root.Attribute("runtimeCursorBaseSize") ?? 0;
+        if (originalSize > 0) SetRuntimeCursorBaseSize(originalSize, true);
+        Reload(); ApplyNativeCursorSizes(); NotifyCursorSettings();
     }
 }
 

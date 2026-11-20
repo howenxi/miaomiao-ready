@@ -146,7 +146,25 @@ $arguments += Join-Path $PSScriptRoot 'CursorEncoder.cs'
 $arguments += $sourcePath
 & $compiler $arguments
 if ($LASTEXITCODE -ne 0) { throw '编译失败。' }
-Copy-Item -LiteralPath (Join-Path $package '喵喵就位.exe') -Destination (Join-Path $package '恢复原鼠标.exe')
+# Reuse the main executable for restoration instead of duplicating bundled artwork.
+$restoreSource = Join-Path $build 'RestoreLauncher.cs'
+$restoreCode = @'
+using System;
+using System.IO;
+using System.Diagnostics;
+using System.Windows.Forms;
+internal static class RestoreLauncher {
+    [STAThread] static void Main(string[] args) {
+        string exe = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "喵喵就位.exe");
+        if (args.Length == 1 && args[0] == "--verify") { Environment.Exit(File.Exists(exe) ? 0 : 1); return; }
+        if (!File.Exists(exe)) { MessageBox.Show("请将恢复程序与喵喵就位.exe放在同一文件夹。", "喵喵就位"); return; }
+        Process.Start(new ProcessStartInfo(exe, "--restore") { WorkingDirectory = AppDomain.CurrentDomain.BaseDirectory, UseShellExecute = true });
+    }
+}
+'@
+[IO.File]::WriteAllText($restoreSource,$restoreCode,[Text.UTF8Encoding]::new($true))
+& $compiler '/nologo' '/target:winexe' '/reference:System.Windows.Forms.dll' ('/win32manifest:'+(Join-Path $template 'app.manifest')) ('/out:'+(Join-Path $package '恢复原鼠标.exe')) $restoreSource
+if ($LASTEXITCODE -ne 0) { throw '恢复入口编译失败。' }
 $instructions = "喵喵就位`r`n`r`n解压后双击喵喵就位.exe。完成后在同窗试用所选指针。`r`n恢复时双击恢复原鼠标.exe。首次备份在 %LOCALAPPDATA%\\MiaoMiaoReady，重复安装持续保留。`r`n本包选择 $($entries.Count) 种指针。忙碌中为静态图。软件自绘指针由软件决定。`r`n本程序采用系统高分屏适配，跨不同缩放屏幕可重新运行。程序未签名，系统可能显示安全提示。`r`n"
 [IO.File]::WriteAllText((Join-Path $package '使用说明.txt'),$instructions,[Text.UTF8Encoding]::new($true))
 Compress-Archive -LiteralPath $package -DestinationPath (Join-Path $output '喵喵就位-安装包.zip')

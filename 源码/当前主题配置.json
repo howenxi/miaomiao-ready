@@ -1,86 +1,86 @@
-{
+﻿{
   "runner": "../素材/银白猫-向右奔跑.png",
   "cursors": [
     {
       "id": "normal",
+      "image": "../设计/银渐层设计方案/正常选择.png",
       "hotspot": [
-        5,
-        42
+        34,
+        92
       ],
-      "image": "../素材/双猫鼠标指针/正常选择.png",
       "contentScale": 0.65
     },
     {
       "id": "text",
+      "image": "../设计/银渐层设计方案/文字输入.png",
       "hotspot": [
-        518,
-        630
+        175,
+        280
       ],
-      "image": "../素材/双猫鼠标指针/文字输入.png",
       "contentScale": 0.65
     },
     {
       "id": "link",
+      "image": "../设计/银渐层设计方案/链接点击.png",
       "hotspot": [
-        49,
-        50
+        108,
+        128
       ],
-      "image": "../素材/双猫鼠标指针/链接点击.png",
       "contentScale": 0.65
     },
     {
       "id": "unavailable",
+      "image": "../设计/银渐层设计方案/不可用.png",
       "hotspot": [
-        124,
-        240
+        280,
+        365
       ],
-      "image": "../素材/双猫鼠标指针/不可用.png",
       "contentScale": 0.65
     },
     {
       "id": "busy",
+      "image": "../设计/银渐层设计方案/忙碌中.png",
       "hotspot": [
-        166,
-        203
+        280,
+        335
       ],
-      "image": "../素材/双猫鼠标指针/忙碌中.png",
       "contentScale": 0.65
     },
     {
       "id": "move",
+      "image": "../设计/银渐层设计方案/移动画布.png",
       "hotspot": [
-        55,
-        87
+        85,
+        165
       ],
-      "image": "../素材/双猫鼠标指针/移动画布.png",
       "contentScale": 0.65
     },
     {
       "id": "horizontal",
+      "image": "../设计/银渐层设计方案/左右调整.png",
       "hotspot": [
-        180,
-        231
+        280,
+        395
       ],
-      "image": "../素材/双猫鼠标指针/左右调整.png",
       "contentScale": 0.65
     },
     {
       "id": "vertical",
+      "image": "../设计/银渐层设计方案/上下调整.png",
       "hotspot": [
-        51,
-        166
+        120,
+        280
       ],
-      "image": "../素材/双猫鼠标指针/上下调整.png",
       "contentScale": 0.65
     }
   ],
   "brand": "../素材/银白猫-品牌坐姿.png",
   "defaultCats": [
     0,
-    1,
-    1,
-    1,
-    1,
+    0,
+    0,
+    0,
+    0,
     0,
     0,
     0
@@ -90,36 +90,76 @@
       "name": "银渐层",
       "cursors": [
         {
-          "id": "busy",
-          "image": "../素材/猫咪候选/silver-busy.png",
+          "id": "normal",
+          "image": "../设计/银渐层设计方案/正常选择.png",
           "hotspot": [
-            760,
-            614
-          ]
-        },
-        {
-          "id": "link",
-          "image": "../素材/猫咪候选/silver-link.png",
-          "hotspot": [
-            384,
-            238
-          ]
-        },
-        {
-          "id": "unavailable",
-          "image": "../素材/猫咪候选/silver-no.png",
-          "hotspot": [
-            594,
-            802
-          ]
+            34,
+            92
+          ],
+          "contentScale": 0.65
         },
         {
           "id": "text",
-          "image": "../素材/猫咪候选/silver-text.png",
+          "image": "../设计/银渐层设计方案/文字输入.png",
           "hotspot": [
-            637,
-            507
-          ]
+            175,
+            280
+          ],
+          "contentScale": 0.65
+        },
+        {
+          "id": "link",
+          "image": "../设计/银渐层设计方案/链接点击.png",
+          "hotspot": [
+            108,
+            128
+          ],
+          "contentScale": 0.65
+        },
+        {
+          "id": "unavailable",
+          "image": "../设计/银渐层设计方案/不可用.png",
+          "hotspot": [
+            280,
+            365
+          ],
+          "contentScale": 0.65
+        },
+        {
+          "id": "busy",
+          "image": "../设计/银渐层设计方案/忙碌中.png",
+          "hotspot": [
+            280,
+            335
+          ],
+          "contentScale": 0.65
+        },
+        {
+          "id": "move",
+          "image": "../设计/银渐层设计方案/移动画布.png",
+          "hotspot": [
+            85,
+            165
+          ],
+          "contentScale": 0.65
+        },
+        {
+          "id": "horizontal",
+          "image": "../设计/银渐层设计方案/左右调整.png",
+          "hotspot": [
+            280,
+            395
+          ],
+          "contentScale": 0.65
+        },
+        {
+          "id": "vertical",
+          "image": "../设计/银渐层设计方案/上下调整.png",
+          "hotspot": [
+            120,
+            280
+          ],
+          "contentScale": 0.65
         }
       ]
     },
@@ -127,36 +167,307 @@
       "name": "三花",
       "cursors": [
         {
-          "id": "horizontal",
-          "image": "../素材/猫咪候选/calico-horizontal.png",
+          "id": "normal",
+          "image": "../设计/三花设计方案/正常选择.png",
           "hotspot": [
-            768,
-            714
-          ]
+            70,
+            145
+          ],
+          "contentScale": 0.65
+        },
+        {
+          "id": "text",
+          "image": "../设计/三花设计方案/文字输入.png",
+          "hotspot": [
+            170,
+            280
+          ],
+          "contentScale": 0.65
+        },
+        {
+          "id": "link",
+          "image": "../设计/三花设计方案/链接点击.png",
+          "hotspot": [
+            80,
+            135
+          ],
+          "contentScale": 0.65
+        },
+        {
+          "id": "unavailable",
+          "image": "../设计/三花设计方案/不可用.png",
+          "hotspot": [
+            280,
+            365
+          ],
+          "contentScale": 0.65
+        },
+        {
+          "id": "busy",
+          "image": "../设计/三花设计方案/忙碌中.png",
+          "hotspot": [
+            280,
+            340
+          ],
+          "contentScale": 0.65
         },
         {
           "id": "move",
-          "image": "../素材/猫咪候选/calico-move.png",
+          "image": "../设计/三花设计方案/移动画布.png",
           "hotspot": [
-            415,
-            330
-          ]
+            176,
+            168
+          ],
+          "contentScale": 0.65
         },
         {
-          "id": "normal",
-          "image": "../素材/猫咪候选/calico-normal.png",
+          "id": "horizontal",
+          "image": "../设计/三花设计方案/左右调整.png",
           "hotspot": [
-            249,
-            361
-          ]
+            280,
+            372
+          ],
+          "contentScale": 0.65
         },
         {
           "id": "vertical",
-          "image": "../素材/猫咪候选/calico-vertical.png",
+          "image": "../设计/三花设计方案/上下调整.png",
           "hotspot": [
-            396,
-            677
-          ]
+            145,
+            280
+          ],
+          "contentScale": 0.65
+        }
+      ]
+    },
+    {
+      "name": "橘猫",
+      "cursors": [
+        {
+          "id": "normal",
+          "image": "../素材/原型猫咪指针/橘猫/正常选择.png",
+          "hotspot": [
+            14,
+            63
+          ],
+          "contentScale": 0.65
+        },
+        {
+          "id": "text",
+          "image": "../素材/原型猫咪指针/橘猫/文字输入.png",
+          "hotspot": [
+            72,
+            228
+          ],
+          "contentScale": 0.65
+        },
+        {
+          "id": "link",
+          "image": "../素材/原型猫咪指针/橘猫/链接点击.png",
+          "hotspot": [
+            32,
+            55
+          ],
+          "contentScale": 0.65
+        },
+        {
+          "id": "unavailable",
+          "image": "../素材/原型猫咪指针/橘猫/不可用.png",
+          "hotspot": [
+            159,
+            237
+          ],
+          "contentScale": 0.65
+        },
+        {
+          "id": "busy",
+          "image": "../素材/原型猫咪指针/橘猫/忙碌中.png",
+          "hotspot": [
+            170,
+            181
+          ],
+          "contentScale": 0.65
+        },
+        {
+          "id": "move",
+          "image": "../素材/原型猫咪指针/橘猫/移动画布.png",
+          "hotspot": [
+            48,
+            72
+          ],
+          "contentScale": 0.65
+        },
+        {
+          "id": "horizontal",
+          "image": "../素材/原型猫咪指针/橘猫/左右调整.png",
+          "hotspot": [
+            182,
+            178
+          ],
+          "contentScale": 0.65
+        },
+        {
+          "id": "vertical",
+          "image": "../素材/原型猫咪指针/橘猫/上下调整.png",
+          "hotspot": [
+            52,
+            172
+          ],
+          "contentScale": 0.65
+        }
+      ]
+    },
+    {
+      "name": "狸花猫",
+      "cursors": [
+        {
+          "id": "normal",
+          "image": "../素材/原型猫咪指针/狸花猫/正常选择.png",
+          "hotspot": [
+            22,
+            119
+          ],
+          "contentScale": 0.65
+        },
+        {
+          "id": "text",
+          "image": "../素材/原型猫咪指针/狸花猫/文字输入.png",
+          "hotspot": [
+            72,
+            228
+          ],
+          "contentScale": 0.65
+        },
+        {
+          "id": "link",
+          "image": "../素材/原型猫咪指针/狸花猫/链接点击.png",
+          "hotspot": [
+            34,
+            64
+          ],
+          "contentScale": 0.65
+        },
+        {
+          "id": "unavailable",
+          "image": "../素材/原型猫咪指针/狸花猫/不可用.png",
+          "hotspot": [
+            150,
+            252
+          ],
+          "contentScale": 0.65
+        },
+        {
+          "id": "busy",
+          "image": "../素材/原型猫咪指针/狸花猫/忙碌中.png",
+          "hotspot": [
+            307,
+            376
+          ],
+          "contentScale": 0.65
+        },
+        {
+          "id": "move",
+          "image": "../素材/原型猫咪指针/狸花猫/移动画布.png",
+          "hotspot": [
+            48,
+            81
+          ],
+          "contentScale": 0.65
+        },
+        {
+          "id": "horizontal",
+          "image": "../素材/原型猫咪指针/狸花猫/左右调整.png",
+          "hotspot": [
+            332,
+            410
+          ],
+          "contentScale": 0.65
+        },
+        {
+          "id": "vertical",
+          "image": "../素材/原型猫咪指针/狸花猫/上下调整.png",
+          "hotspot": [
+            52,
+            194
+          ],
+          "contentScale": 0.65
+        }
+      ]
+    },
+    {
+      "name": "德文",
+      "cursors": [
+        {
+          "id": "normal",
+          "image": "../素材/原型猫咪指针/德文/正常选择.png",
+          "hotspot": [
+            13,
+            81
+          ],
+          "contentScale": 0.65
+        },
+        {
+          "id": "text",
+          "image": "../素材/原型猫咪指针/德文/文字输入.png",
+          "hotspot": [
+            73,
+            228
+          ],
+          "contentScale": 0.65
+        },
+        {
+          "id": "link",
+          "image": "../素材/原型猫咪指针/德文/链接点击.png",
+          "hotspot": [
+            33,
+            57
+          ],
+          "contentScale": 0.65
+        },
+        {
+          "id": "unavailable",
+          "image": "../素材/原型猫咪指针/德文/不可用.png",
+          "hotspot": [
+            156,
+            243
+          ],
+          "contentScale": 0.65
+        },
+        {
+          "id": "busy",
+          "image": "../素材/原型猫咪指针/德文/忙碌中.png",
+          "hotspot": [
+            168,
+            190
+          ],
+          "contentScale": 0.65
+        },
+        {
+          "id": "move",
+          "image": "../素材/原型猫咪指针/德文/移动画布.png",
+          "hotspot": [
+            47,
+            74
+          ],
+          "contentScale": 0.65
+        },
+        {
+          "id": "horizontal",
+          "image": "../素材/原型猫咪指针/德文/左右调整.png",
+          "hotspot": [
+            183,
+            195
+          ],
+          "contentScale": 0.65
+        },
+        {
+          "id": "vertical",
+          "image": "../素材/原型猫咪指针/德文/上下调整.png",
+          "hotspot": [
+            51,
+            178
+          ],
+          "contentScale": 0.65
         }
       ]
     }

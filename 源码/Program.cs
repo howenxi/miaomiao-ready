@@ -54,8 +54,11 @@ internal static class Program
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
             bool restoring = (args.Length > 0 && args[0] == "--restore") || Path.GetFileName(Application.ExecutablePath).StartsWith("恢复");
-            if (!restoring && !Setup.ChooseCats()) return;
-            Application.Run(new InstallerWindow(restoring));
+            do {
+                Setup.ReturnToPicker = false;
+                if (!restoring && !Setup.ChooseCats()) return;
+                Application.Run(new InstallerWindow(restoring));
+            } while (!restoring && Setup.ReturnToPicker);
         }
     }
 }
@@ -72,6 +75,9 @@ internal static class Setup
     static readonly int[] choices = new int[8];
     static string ThemeFolder { get { return "cursors-v1" + (variantMode ? "-" + string.Join("_", Array.ConvertAll(choices, n => n.ToString())) : ""); } }
     static bool variantMode;
+    internal static int RequestedPixels = 35;
+    internal static bool ReturnToPicker;
+    static int[] acceptedCats;
 
     internal static void TestCatSelection(string output)
     {
@@ -87,6 +93,17 @@ internal static class Setup
                 {
                     dialog.DrawToBitmap(image, new Rectangle(Point.Empty, image.Size));
                     image.Save(Path.Combine(output, "cat-picker.png"));
+                    using(var framed=WindowShadow.Render(dialog.Size,40))
+                    {
+                        if(framed.GetPixel(40+dialog.Width/2,40+dialog.Height/2).A!=0) throw new IOException("阴影遮挡窗口内容");
+                        using(var g=Graphics.FromImage(framed))
+                        using(var clip=AntShape.Rounded(new RectangleF(40,40,dialog.Width,dialog.Height),20*dialog.Width/850f))
+                        { g.SetClip(clip); g.DrawImageUnscaled(image,40,40); }
+                        using(var canvas=new Bitmap(framed.Width,framed.Height))
+                        using(var g=Graphics.FromImage(canvas))
+                        { g.Clear(Color.FromArgb(241,238,246)); g.DrawImageUnscaled(framed,0,0); canvas.Save(Path.Combine(output,"cat-picker-shadow.png")); }
+                    }
+                    if(dialog.Icon==null) throw new IOException("缺少猫咪任务栏图标");
                 }
                 dialog.VerifyAssignments();
                 Array.Copy(dialog.ResourceChoices(), choices, choices.Length);
@@ -101,11 +118,12 @@ internal static class Setup
         {
             if (catalog == null) return true;
             var cats = XDocument.Load(catalog);
-            using (var dialog = new CatPicker(cats))
+            using (var dialog = new CatPicker(cats, acceptedCats, RequestedPixels))
             {
                 if (dialog.ShowDialog() != DialogResult.OK) return false;
                 Array.Copy(dialog.ResourceChoices(), choices, choices.Length);
-                variantMode = true;
+                acceptedCats = (int[])dialog.Choices.Clone(); RequestedPixels = dialog.ChosenPixels;
+                SizedFolder = null; variantMode = true;
                 return true;
             }
         }
@@ -553,16 +571,29 @@ internal static class Setup
 
 internal class PrototypeWindow : Form
 {
+    WindowShadow shadow;
     [StructLayout(LayoutKind.Sequential)] struct FrameMargins { public int Left, Right, Top, Bottom; }
     [DllImport("dwmapi.dll")] static extern int DwmExtendFrameIntoClientArea(IntPtr window, ref FrameMargins margins);
     protected PrototypeWindow()
     {
         DoubleBuffered = true; ResizeRedraw = true; Padding = new Padding(1);
+        Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath);
+        Shown += delegate { shadow = new WindowShadow(this); shadow.Show(this); shadow.RefreshShadow(); };
+        LocationChanged += delegate { if (shadow != null) shadow.RefreshShadow(); };
+        SizeChanged += delegate { if (shadow != null) { shadow.Visible = WindowState != FormWindowState.Minimized; shadow.RefreshShadow(); } };
+        VisibleChanged += delegate { if (shadow != null) shadow.Visible = Visible && WindowState != FormWindowState.Minimized; };
+        FormClosed += delegate { if (shadow != null) { shadow.Dispose(); shadow = null; } };
     }
     protected override void OnHandleCreated(EventArgs e)
     {
         base.OnHandleCreated(e);
         try { var margins = new FrameMargins { Left=1, Right=1, Top=1, Bottom=1 }; DwmExtendFrameIntoClientArea(Handle, ref margins); } catch (DllNotFoundException) { }
+    }
+    protected override void OnSizeChanged(EventArgs e)
+    {
+        base.OnSizeChanged(e); if(ClientSize.Width<40||ClientSize.Height<40)return;
+        using(var path=AntShape.Rounded(new RectangleF(0,0,ClientSize.Width,ClientSize.Height),20*ClientSize.Width/850f))
+        {var old=Region;Region=new Region(path);if(old!=null)old.Dispose();}
     }
     protected override void OnPaint(PaintEventArgs e)
     {
@@ -574,139 +605,166 @@ internal class PrototypeWindow : Form
     }
 }
 
+// Click-through owned layer keeps the soft exterior shadow independent of Windows theme settings.
+internal sealed class WindowShadow : Form
+{
+    readonly Form target;
+    [StructLayout(LayoutKind.Sequential)] struct PointI { public int X,Y; public PointI(int x,int y) { X=x; Y=y; } }
+    [StructLayout(LayoutKind.Sequential)] struct SizeI { public int Width,Height; public SizeI(int w,int h) { Width=w; Height=h; } }
+    [StructLayout(LayoutKind.Sequential, Pack=1)] struct Blend { public byte Operation,Flags,Alpha,Format; }
+    [DllImport("user32.dll")] static extern IntPtr GetDC(IntPtr window);
+    [DllImport("user32.dll")] static extern int ReleaseDC(IntPtr window,IntPtr dc);
+    [DllImport("gdi32.dll")] static extern IntPtr CreateCompatibleDC(IntPtr dc);
+    [DllImport("gdi32.dll")] static extern bool DeleteDC(IntPtr dc);
+    [DllImport("gdi32.dll")] static extern IntPtr SelectObject(IntPtr dc,IntPtr obj);
+    [DllImport("gdi32.dll")] static extern bool DeleteObject(IntPtr obj);
+    [DllImport("user32.dll",SetLastError=true)] static extern bool UpdateLayeredWindow(IntPtr window,IntPtr screen,ref PointI destination,ref SizeI size,IntPtr memory,ref PointI source,int key,ref Blend blend,int flags);
+    internal WindowShadow(Form target) { this.target=target; FormBorderStyle=FormBorderStyle.None; ShowInTaskbar=false; StartPosition=FormStartPosition.Manual; }
+    protected override bool ShowWithoutActivation { get { return true; } }
+    protected override CreateParams CreateParams { get { var p=base.CreateParams; p.ExStyle |= 0x80000 | 0x20 | 0x80 | 0x08000000; return p; } }
+    internal static Bitmap Render(Size windowSize, int padding)
+    {
+        var bitmap=new Bitmap(windowSize.Width+padding*2,windowSize.Height+padding*2,System.Drawing.Imaging.PixelFormat.Format32bppPArgb);
+        float scale=windowSize.Width/850f;
+        using(var g=Graphics.FromImage(bitmap))
+        {
+            g.SmoothingMode=System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+            for(int spread=padding-2; spread>=1; spread--)
+            {
+                float extent=spread;
+                using(var path=AntShape.Rounded(new RectangleF(padding-extent,padding-extent+8*scale,windowSize.Width+extent*2,windowSize.Height+extent*2),20*scale+extent))
+                using(var brush=new SolidBrush(Color.FromArgb(1,0,0,0))) g.FillPath(brush,path);
+            }
+            g.CompositingMode=System.Drawing.Drawing2D.CompositingMode.SourceCopy;
+            using(var path=AntShape.Rounded(new RectangleF(padding,padding,windowSize.Width,windowSize.Height),20*scale))
+            using(var brush=new SolidBrush(Color.Transparent)) g.FillPath(brush,path);
+        }
+        return bitmap;
+    }
+    internal void RefreshShadow()
+    {
+        if(IsDisposed || target.IsDisposed || !target.Visible) return;
+        int padding=Math.Max(24,(int)Math.Round(32*target.Width/850f));
+        using(var bitmap=Render(target.Size,padding))
+        {
+            IntPtr screen=GetDC(IntPtr.Zero), memory=CreateCompatibleDC(screen), image=bitmap.GetHbitmap(Color.FromArgb(0)), previous=SelectObject(memory,image);
+            try {
+                var destination=new PointI(target.Left-padding,target.Top-padding); var size=new SizeI(bitmap.Width,bitmap.Height); var source=new PointI(0,0); var blend=new Blend { Alpha=255,Format=1 };
+                if(!UpdateLayeredWindow(Handle,screen,ref destination,ref size,memory,ref source,0,ref blend,2)) throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error());
+            }
+            finally { SelectObject(memory,previous); DeleteObject(image); DeleteDC(memory); ReleaseDC(IntPtr.Zero,screen); }
+        }
+    }
+}
+
 internal sealed class CatPicker : PrototypeWindow
 {
     internal readonly int[] Choices = new int[8];
-    readonly Label count = new Label { AutoSize = true, ForeColor = Color.FromArgb(102, 93, 116) };
+    internal int ChosenPixels;
     readonly AssignmentCard[] assignments = new AssignmentCard[8];
+    readonly int[] previewKeys = {-1,-1,-1,-1,-1,-1,-1,-1};
     readonly string[] names;
     readonly int[] defaults;
     readonly FlowLayoutPanel cats = new FlowLayoutPanel();
-    readonly AntButton[] catButtons = new AntButton[5];
-    readonly Button apply = new AntButton { Text = "应用指针", Primary = true, DialogResult = DialogResult.OK };
+    readonly AntButton[] catButtons;
+    readonly AntButton[] sizes = new AntButton[3];
+    readonly int[] pixels = {25,35,45};
+    readonly AntButton apply = new AntButton { Text="应用指针", Primary=true, DialogResult=DialogResult.OK };
+    readonly AntButton applyAll = new AntButton { Quiet=true };
     int selected;
-
-    internal CatPicker(XDocument catalog)
+    readonly float scale;
+    internal CatPicker(XDocument catalog) : this(catalog,null,35) { }
+    internal CatPicker(XDocument catalog, int[] initial, int size)
     {
         var entries = new System.Collections.Generic.List<XElement>(catalog.Root.Elements("cat"));
-        names = entries.ConvertAll(e => (string)e.Attribute("name")).ToArray();
-        defaults = Array.ConvertAll(((string)catalog.Root.Attribute("defaults")).Split(','), int.Parse);
-        Text = "喵喵就位 · 选择小猫";
-        AutoScaleMode = AutoScaleMode.None; Font = new Font("Microsoft YaHei", 11.25f);
-        BackColor = Color.White; ForeColor = Color.FromArgb(41, 36, 57);
-        StartPosition = FormStartPosition.CenterScreen;
-        FormBorderStyle = FormBorderStyle.None;
-        MaximizeBox = false; MinimizeBox = false;
-        ClientSize = new Size(850, 592);
-
-        var title = new Label { Text = "为指针挑选小猫", Font = new Font(Font.FontFamily, 19.5f, FontStyle.Bold), AutoSize = true, Left = 36, Top = 94 };
-        Controls.Add(title);
-        Controls.Add(new Label { Text = "选好小猫后，可全部使用这只猫，也可以逐项分配。再次点击已分配项可取消。", AutoSize = true,
-            ForeColor = Color.FromArgb(102, 93, 116), Left = 36, Top = 142 });
-        cats.SetBounds(36, 190, 776, 52);
-        cats.AutoScroll = false; cats.WrapContents = true; cats.Margin = Padding.Empty; cats.Padding = Padding.Empty;
-        Controls.Add(cats);
-        for (int i = 0; i < names.Length; i++)
+        names=entries.ConvertAll(e=>(string)e.Attribute("name")).ToArray(); catButtons=new AntButton[names.Length];
+        defaults=Array.ConvertAll(((string)catalog.Root.Attribute("defaults")).Split(','),int.Parse);
+        Array.Copy(initial ?? defaults,Choices,8); ChosenPixels=size;
+        Text="喵喵就位 · 选择小猫"; AutoScaleMode=AutoScaleMode.None;
+        Font=new Font("Microsoft YaHei",11.25f); BackColor=Color.White; ForeColor=Color.FromArgb(41,36,57);
+        StartPosition=FormStartPosition.CenterScreen; FormBorderStyle=FormBorderStyle.None; MaximizeBox=false; MinimizeBox=false;
+        ClientSize=new Size(850,560); scale=InstallerWindow.WindowScale(this);
+        cats.SetBounds(36,94,776,56); cats.AutoScroll=false; cats.WrapContents=false; cats.Margin=Padding.Empty; cats.Padding=Padding.Empty; Controls.Add(cats);
+        for(int i=0;i<names.Length;i++)
         {
-            int cat = i;
-            var button = new AntButton { Text = names[i], CatStyle = true, Font = new Font(Font.FontFamily, 11.25f, FontStyle.Bold), Width = i == 0 || i == 3 ? 119 : 104, Height = 52, Margin = new Padding(0, 0, 10, 10) };
-            button.Click += delegate { selected = cat; RefreshChoices(); };
-            using (var stream = Setup.Resource(i == defaults[0] ? "picture0" : "picture0-" + (i + 1)))
-            using (var source = Image.FromStream(stream)) button.Image = InstallerWindow.ResizePicture(source, 34, true);
-            button.Disposed += delegate { if (button.Image != null) button.Image.Dispose(); };
-            catButtons[i] = button; cats.Controls.Add(button);
+            int c=i; var button=new AntButton {Text=names[i],CatStyle=true,Font=new Font(Font.FontFamily,11.25f,FontStyle.Bold),Width=(i==0||i==3)?121:106,Height=56,Margin=new Padding(0,0,10,0)};
+            button.Click+=delegate {selected=c;RefreshChoices();};
+            using(var stream=Setup.Resource(i==defaults[0]?"picture0":"picture0-"+(i+1)))
+            using(var image=Image.FromStream(stream)) button.Image=InstallerWindow.ResizePicture(image,34,true);
+            button.Disposed+=delegate {if(button.Image!=null)button.Image.Dispose();}; catButtons[i]=button;cats.Controls.Add(button);
         }
-        var applyAll = new AntButton { Text = "全部使用这只猫", Width = 139, Height = 42, Font = new Font(Font.FontFamily, 11.25f, FontStyle.Bold), Margin = new Padding(0, 0, 0, 10) };
-        applyAll.Click += delegate { for (int j = 0; j < Choices.Length; j++) Choices[j] = selected; RefreshChoices(); };
-        cats.Controls.Add(applyAll);
-        for (int i = 0; i < Choices.Length; i++)
+        Controls.Add(new Label {Text="选小猫，点指针搭配",AutoSize=true,Left=36,Top=174,Font=new Font(Font.FontFamily,9.75f),ForeColor=Color.FromArgb(102,93,116)});
+        applyAll.SetBounds(684,164,128,34);applyAll.Font=new Font(Font.FontFamily,9.75f,FontStyle.Bold);
+        applyAll.Click+=delegate {for(int i=0;i<8;i++)Choices[i]=selected;RefreshChoices();};Controls.Add(applyAll);
+        Controls.Add(new Panel {Left=36,Top=205,Width=776,Height=1,BackColor=Color.FromArgb(230,223,237)});
+        for(int i=0;i<8;i++)
         {
-            int index = i, x = 36 + i % 2 * 400, y = 260 + i / 2 * 59;
-            var button = new AssignmentCard { Left = x, Top = y, Width = 376, Height = 59, Font = new Font(Font.FontFamily, 10.5f, FontStyle.Bold), Text = Setup.Names[i] };
-            assignments[i] = button;
-            button.Click += delegate { Choices[index] = Choices[index] == selected ? -1 : selected; RefreshChoices(); };
-            Controls.Add(button);
+            int index=i;var row=new AssignmentCard {Left=36+i%2*400,Top=206+i/2*65,Width=376,Height=65,Text=Setup.Names[i],Font=new Font(Font.FontFamily,10.5f,FontStyle.Bold)};
+            row.Click+=delegate {Choices[index]=Choices[index]==selected?-1:selected;RefreshChoices();};assignments[i]=row;Controls.Add(row);
         }
-        var current = new AntButton { Text = "恢复推荐搭配", Left = 36, Top = 527, Width = 145, Height = 42, Plain = true };
-        current.Click += delegate { Array.Copy(defaults, Choices, Choices.Length); RefreshChoices(); };
-        var cancel = new AntButton { Text = "取消", Left = 580, Top = 588, Width = 108, Height = 40, DialogResult = DialogResult.Cancel };
-        apply.SetBounds(704, 527, 108, 42);
-        Controls.Add(new Panel { Left = 36, Top = 259, Width = 776, Height = 1, BackColor = Color.FromArgb(230, 223, 237) });
-        Controls.Add(current); Controls.Add(apply); CancelButton = null;
-        count.SetBounds(582, 538, 112, 25); Controls.Add(count);
-        AcceptButton = apply;
-        float scale = InstallerWindow.WindowScale(this);
-        var brand = InstallerWindow.AddBrandHeader(this);
-        Scale(new SizeF(scale, scale));
-        Font = new Font("Microsoft YaHei", 11.25f);
-        title.Font = new Font(Font.FontFamily, 24f, FontStyle.Bold);
-        brand.Font = new Font(Font.FontFamily, 13.5f, FontStyle.Bold);
-        foreach (var button in catButtons) if (button != null) button.Font = new Font(Font.FontFamily, 11.25f, FontStyle.Bold);
-        using (var path = AntShape.Rounded(new RectangleF(0, 0, Width, Height), 20 * scale))
-            Region = new Region(path);
-        Array.Copy(defaults, Choices, Choices.Length);
+        Controls.Add(new Label {Text="指针大小",AutoSize=true,Left=36,Top=508,Font=new Font(Font.FontFamily,9.75f),ForeColor=Color.FromArgb(102,93,116)});
+        var segment=new SegmentPanel();segment.SetBounds(102,498,147,38);Controls.Add(segment);
+        for(int i=0;i<3;i++)
+        {
+            int index=i;var button=new AntButton {Text=new[]{"小","中","大"}[i],Segment=true,Font=new Font(Font.FontFamily,9.75f)};
+            button.SetBounds(3+i*47,3,44,32);button.Click+=delegate {ChosenPixels=pixels[index];RefreshChoices();};sizes[i]=button;segment.Controls.Add(button);
+        }
+        apply.SetBounds(720,496,92,42); apply.Font=new Font(Font.FontFamily,11.25f,FontStyle.Bold); Controls.Add(apply);AcceptButton=apply;
+        var brand=InstallerWindow.AddBrandHeader(this);Scale(new SizeF(scale,scale));brand.Font=new Font(Font.FontFamily,13.5f,FontStyle.Bold);
         RefreshChoices();
     }
-
     void RefreshChoices()
     {
-        for (int i = 0; i < names.Length; i++)
+        for(int i=0;i<catButtons.Length;i++){catButtons[i].SelectedStyle=selected==i;catButtons[i].Invalidate();}
+        bool all=Array.TrueForAll(Choices,c=>c==selected);applyAll.Text=all?"已全部使用 ✓":"全部用"+names[selected];applyAll.Enabled=!all;applyAll.Font=new Font(Font.FontFamily,9.75f,all?FontStyle.Regular:FontStyle.Bold);
+        applyAll.Width=TextRenderer.MeasureText(applyAll.Text,applyAll.Font,Size.Empty,TextFormatFlags.NoPadding).Width+(int)Math.Round(26*scale);applyAll.Left=(int)Math.Round(812*scale)-applyAll.Width;
+        apply.Enabled=Array.Exists(Choices,c=>c>=0);
+        for(int i=0;i<3;i++){sizes[i].SelectedStyle=ChosenPixels==pixels[i];sizes[i].Font=new Font(Font.FontFamily,9.75f,sizes[i].SelectedStyle?FontStyle.Bold:FontStyle.Regular);sizes[i].Invalidate();}
+        for(int i=0;i<8;i++)
         {
-            var button = catButtons[i];
-            button.SelectedStyle = selected == i; button.Invalidate();
-        }
-        int assigned = Array.FindAll(Choices, n => n >= 0).Length;
-        count.Text = "已分配 " + assigned + " 项"; apply.Enabled = assigned > 0;
-        for (int i = 0; i < Choices.Length; i++)
-        {
-            int cat = Choices[i], shown = cat < 0 ? selected : cat;
-            assignments[i].Status = cat < 0 ? "保留原指针" : names[cat]; assignments[i].Assigned = cat >= 0;
-            var old = assignments[i].Image;
-            int variant = shown == defaults[i] ? 0 : shown + 1;
-            using (var source = Setup.Resource(variant == 0 ? "picture" + i : "picture" + i + "-" + variant))
-            using (var original = Image.FromStream(source))
-                assignments[i].Image = InstallerWindow.ResizePicture(original, (int)Math.Round(34 * ClientSize.Width / 850f), true);
-            assignments[i].Invalidate();
-            if (old != null) old.Dispose();
+            int c=Choices[i],shown=c<0?selected:c;assignments[i].Status=c<0?"保留原指针":names[c];assignments[i].Assigned=c>=0;
+            int variant=shown==defaults[i]?0:shown+1;int key=variant*100+ChosenPixels;
+            if(previewKeys[i]==key){assignments[i].Invalidate();continue;}
+            var old=assignments[i].Image;
+            using(var stream=Setup.Resource(variant==0?"picture"+i:"picture"+i+"-"+variant))
+            using(var image=Image.FromStream(stream))assignments[i].Image=InstallerWindow.ResizePicture(image,ChosenPixels,true);
+            previewKeys[i]=key;if(old!=null)old.Dispose();assignments[i].Invalidate();
         }
     }
-
     internal void VerifyAssignments()
     {
-        if (names.Length < 2) throw new IOException("至少需要两只可选猫咪");
-        if (Array.Exists(Choices, n => n != 0)) throw new IOException("默认应全部银渐层");
-        selected = 1; ((Button)cats.Controls[cats.Controls.Count - 1]).PerformClick();
-        if (Array.Exists(Choices, n => n != 1)) throw new IOException("全部应用失败");
-        Array.Copy(defaults, Choices, Choices.Length);
-        for (int i = 0; i < Choices.Length; i++)
+        if(Array.Exists(Choices,c=>c!=0))throw new IOException("默认应为全银渐层");
+        catButtons[1].PerformClick();if(Array.Exists(Choices,c=>c!=0))throw new IOException("选猫不应改变搭配");
+        assignments[1].PerformClick();assignments[2].PerformClick();
+        if(Choices[0]!=0||Choices[1]!=1||Choices[2]!=1)throw new IOException("连续混搭失败");
+        foreach(int i in new[]{0,2,1})
         {
-            selected = (defaults[i] + 1) % names.Length;
-            assignments[i].PerformClick();
-            if (Choices[i] != selected) throw new IOException("猫咪分配失败");
+            sizes[i].PerformClick();if(ChosenPixels!=pixels[i])throw new IOException("选择尺寸失败");
+            foreach(var row in assignments) {if(Math.Max(row.Image.Width,row.Image.Height)!=ChosenPixels)throw new IOException("预览尺寸不一致");}
         }
-        foreach (int i in new int[] {0, 5, 6, 7})
-        {
-            selected = Choices[i];
-            assignments[i].PerformClick();
-            if (Choices[i] != -1) throw new IOException("取消分配失败");
-        }
-        Array.Copy(defaults, Choices, Choices.Length); RefreshChoices();
+        applyAll.PerformClick();if(Array.Exists(Choices,c=>c!=1)||applyAll.Enabled)throw new IOException("整套使用状态错误");
+        assignments[0].PerformClick();if(Choices[0]!=-1||!applyAll.Enabled)throw new IOException("取消单项失败");
+        Array.Copy(defaults,Choices,8);ChosenPixels=35;selected=0;RefreshChoices();
+        using(var returned=new CatPicker(XDocument.Parse("<cats defaults='0,0,0,0,0,0,0,0'><cat name='银渐层'/><cat name='三花'/><cat name='橘猫'/><cat name='狸花猫'/><cat name='德文'/></cats>"),new[]{0,1,0,0,0,0,0,0},45))
+            if(returned.Choices[1]!=1||returned.ChosenPixels!=45)throw new IOException("返回调整丢失设置");
     }
-
     internal int[] ResourceChoices()
     {
-        var result = new int[Choices.Length];
-        for (int i = 0; i < result.Length; i++)
-            result[i] = Choices[i] < 0 ? -1 : Choices[i] == defaults[i] ? 0 : Choices[i] + 1;
-        return result;
+        var result=new int[8];for(int i=0;i<8;i++)result[i]=Choices[i]<0?-1:Choices[i]==defaults[i]?0:Choices[i]+1;return result;
     }
-
     protected override void Dispose(bool disposing)
     {
-        if (disposing)
-            foreach (var picture in assignments)
-                if (picture != null && picture.Image != null) picture.Image.Dispose();
-        base.Dispose(disposing);
+        if(disposing)foreach(var row in assignments)if(row!=null&&row.Image!=null)row.Image.Dispose();base.Dispose(disposing);
+    }
+}
+internal sealed class SegmentPanel : Panel
+{
+    internal SegmentPanel(){DoubleBuffered=true;BackColor=Color.White;}
+    protected override void OnPaintBackground(PaintEventArgs e)
+    {
+        e.Graphics.Clear(Color.White);e.Graphics.SmoothingMode=System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+        using(var path=AntShape.Rounded(new RectangleF(0,0,Width,Height),10*Height/38f))
+        using(var brush=new SolidBrush(Color.FromArgb(241,239,244)))e.Graphics.FillPath(brush,path);
     }
 }
 
@@ -715,17 +773,8 @@ internal sealed class InstallerWindow : PrototypeWindow
     readonly Color Ink = Color.FromArgb(41, 36, 57), Muted = Color.FromArgb(102, 93, 116), Accent = Color.FromArgb(101, 65, 138);
     readonly Label title = new Label(), subtitle = new Label(), step = new Label(), percent = new Label();
     readonly Panel loading = new SmoothPanel(), scenarios = new Panel();
-    readonly Button done = new AntButton { Primary = true }, restore = new AntButton { Plain = true };
+    readonly Button done = new AntButton { Primary = true }, back = new AntButton { Plain = true, Leading = true };
 
-    readonly Panel sizeControls = new Panel();
-    readonly AntButton[] presets = { new AntButton { Text = "小" }, new AntButton { Text = "中" }, new AntButton { Text = "大" } };
-    readonly int[] presetPixels = {25, 35, 45};
-    int selectedPixels = 35;
-    bool previewBusy;
-    string previewError;
-    readonly Label sizeLabel = new Label(), sizeStatus = new Label { ForeColor = Color.FromArgb(102,93,116) };
-    readonly Button applySize = new AntButton { Primary = false, Text = "应用大小" };
-    int appliedPixels = 35;
     readonly System.Windows.Forms.Timer timer = new System.Windows.Forms.Timer();
     readonly Image runner;
     readonly float displayScale;
@@ -743,29 +792,26 @@ internal sealed class InstallerWindow : PrototypeWindow
         displayScale = WindowScale(this);
         Font = new Font("Microsoft YaHei", 10);
         BackColor = Color.FromArgb(255, 255, 255); ForeColor = Ink;
-        ClientSize = new Size(850, 574); FormBorderStyle = FormBorderStyle.None;
+        ClientSize = new Size(850, 504); FormBorderStyle = FormBorderStyle.None;
         AutoScroll = false;
         MaximizeBox = false; StartPosition = FormStartPosition.CenterScreen;
         title.SetBounds(36, 30, 776, 42); title.Font = new Font(Font.FontFamily, 19, FontStyle.Bold);
         title.Text = restoring ? "小猫正在交接…" : "小猫正在赶来";
-        subtitle.SetBounds(36, 80, 776, 26); subtitle.ForeColor = Muted;
+        subtitle.SetBounds(36, 70, 776, 26); subtitle.ForeColor = Muted;
         subtitle.Text = restoring ? "正在恢复安装前的鼠标方案" : "正在为所选场景应用鼠标指针。";
-        Controls.Add(title); Controls.Add(subtitle);
+        Controls.Add(title); Controls.Add(subtitle); subtitle.Visible=restoring;
         using (var stream = Setup.Resource("runner"))
-        using (var original = Image.FromStream(stream)) runner = ResizePicture(original, D(112));
-        loading.SetBounds(32, 148, 786, 150); loading.Paint += DrawLoading; Controls.Add(loading);
-        step.SetBounds(80, 276, 440, 28); step.ForeColor = Muted; Controls.Add(step);
-        percent.SetBounds(688, 276, 80, 28); percent.TextAlign = ContentAlignment.TopRight; percent.ForeColor = Muted; Controls.Add(percent);
-        done.Text = "完成"; done.SetBounds(736, 564, 76, 42); done.Click += delegate { Close(); }; done.Visible = false; Controls.Add(done);
-        restore.Text = "恢复原鼠标"; restore.SetBounds(36, 564, 140, 42); restore.Visible = false;
-        restore.Click += delegate {
-            try { Setup.Restore(); scenarios.Visible = false; title.Text = "原来的鼠标已回来"; subtitle.Text = "已恢复首次安装前的鼠标方案。"; restore.Visible = false; }
-            catch (Exception ex) { MessageBox.Show(this, ex.Message, "恢复未完成", MessageBoxButtons.OK, MessageBoxIcon.Warning); }
-        }; Controls.Add(restore);
+        using (var original = Image.FromStream(stream)) runner = ResizePicture(original, D(94), true);
+        loading.SetBounds(36, 123, 776, 150); loading.Paint += DrawLoading; Controls.Add(loading);
+        step.SetBounds(88, 255, 440, 28); step.ForeColor = Muted; step.Font=new Font(Font.FontFamily,9.75f); Controls.Add(step);
+        percent.SetBounds(680, 255, 80, 28); percent.TextAlign = ContentAlignment.TopRight; percent.ForeColor = Accent; percent.Font=new Font(Font.FontFamily,9.75f,FontStyle.Bold); Controls.Add(percent);
+        done.Font=new Font(Font.FontFamily,11.25f,FontStyle.Bold); done.Text = "完成"; done.SetBounds(750, 564, 62, 42); done.Click += delegate { Close(); }; done.Visible = false; Controls.Add(done);
+        back.Font=new Font(Font.FontFamily,10.5f);back.Text="← 返回调整";back.SetBounds(36,564,120,42);back.Visible=false;
+        back.Click+=delegate { Setup.ReturnToPicker=true;Close(); };Controls.Add(back);
         scenarios.SetBounds(36, 184, 776, 260); scenarios.Visible = false; Controls.Add(scenarios);
         foreach (Control control in Controls) control.Top += 64;
         var brand = AddBrandHeader(this);
-        var installing = new Label { Name = "InstallingStatus", Text = "正在安装", AutoSize = true, ForeColor = Muted, Left = 735, Top = 23 };
+        var installing = new Label { Name = "InstallingStatus", Text = "正在应用", AutoSize = true, ForeColor = Muted, Left = 735, Top = 23 };
         brand.Parent.Controls.Add(installing);
         var close = Controls.Find("PrototypeClose",true); if (close.Length > 0) close[0].Visible = false;
         timer.Interval = 35; timer.Tick += Tick;
@@ -773,46 +819,9 @@ internal sealed class InstallerWindow : PrototypeWindow
         FormClosing += delegate(object sender, FormClosingEventArgs e) { if (working) e.Cancel = true; };
         Scale(new SizeF(displayScale, displayScale));
         Font = new Font("Microsoft YaHei", 11.25f);
-        title.Font = new Font(Font.FontFamily, 24f, FontStyle.Bold);
+        title.Font = new Font(Font.FontFamily, 19.5f, FontStyle.Bold);
         brand.Font = new Font(Font.FontFamily, 13.5f, FontStyle.Bold);
-        sizeControls.SetBounds(D(36), D(190), D(776), D(42));
-        sizeLabel.SetBounds(0, D(10), D(84), D(28));
-        applySize.SetBounds(D(292), 0, D(112), D(42));
-        sizeControls.Controls.Add(sizeLabel); sizeControls.Controls.Add(applySize);
-        sizeStatus.SetBounds(D(414),D(11),D(180),D(26)); sizeControls.Controls.Add(sizeStatus);
-        for (int i = 0; i < presets.Length; i++)
-        {
-            int chosenPreset = i;
-            presets[i].SetBounds(D(92 + i * 64), 0, D(56), D(42));
-            presets[i].Click += delegate
-            {
-                if (previewBusy || selectedPixels == presetPixels[chosenPreset]) return;
-                previewBusy = true; applySize.Enabled = false;
-                foreach (var button in presets) button.Enabled = false;
-                subtitle.Text = "正在准备“" + presets[chosenPreset].Text + "”尺寸预览…";
-                int size = presetPixels[chosenPreset];
-                try
-                {
-                    Setup.PrepareSize(size);
-                    selectedPixels = size; RebuildSizePreview();
-                    previewError = null;
-                }
-                catch (Exception error) { previewError = error.ToString(); if (!Setup.SelfTesting) MessageBox.Show(this, error.Message, "预览未完成"); }
-                finally
-                {
-                    previewBusy = false;
-                    foreach (var button in presets) button.Enabled = true;
-                    RefreshPresets();
-                }
-            };
-            sizeControls.Controls.Add(presets[i]);
-        }
-        sizeControls.Visible = false; Controls.Add(sizeControls);
-        applySize.Click += delegate
-        {
-            try { Setup.ApplySize(selectedPixels); appliedPixels = selectedPixels; RefreshPresets(); subtitle.Text = "大小已应用。移到下方区域试用鼠标效果。"; }
-            catch (Exception error) { MessageBox.Show(this, error.Message, "大小应用未完成"); }
-        };
+
     }
     [DllImport("user32.dll")] static extern bool ReleaseCapture();
     [DllImport("user32.dll")] static extern IntPtr SendMessage(IntPtr window, uint message, IntPtr wParam, IntPtr lParam);
@@ -835,7 +844,7 @@ internal sealed class InstallerWindow : PrototypeWindow
     }
     internal static Label AddBrandHeader(Form window)
     {
-        var closeWindow = new AntButton();
+        var closeWindow = new AntButton { Plain=true };
         closeWindow.Name = "PrototypeClose";
         MouseEventHandler drag = delegate(object sender, MouseEventArgs e)
         {
@@ -848,7 +857,7 @@ internal sealed class InstallerWindow : PrototypeWindow
         avatar.Disposed += delegate { avatar.Image.Dispose(); };
         var brand = new Label { Text = "喵喵就位", AutoSize = false, BackColor = Color.Transparent, Font = new Font(window.Font.FontFamily, 17, FontStyle.Bold) };
         brand.SetBounds(76, 18, 280, 30); header.Controls.Add(brand);
-        closeWindow.Text = "×"; closeWindow.SetBounds(784, 12, 38, 38); closeWindow.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+        closeWindow.Font = new Font(window.Font.FontFamily,18f); closeWindow.Text = "×"; closeWindow.SetBounds(784, 12, 38, 38); closeWindow.Anchor = AnchorStyles.Top | AnchorStyles.Right;
         closeWindow.Click += delegate { window.Close(); }; header.Controls.Add(closeWindow);
         header.MouseDown += drag; brand.MouseDown += drag; avatar.MouseDown += drag;
         window.Controls.Add(header);
@@ -861,6 +870,11 @@ internal sealed class InstallerWindow : PrototypeWindow
         {
             return ResizePicture(source, 128);
         }
+    }
+    protected override void OnPaint(PaintEventArgs e)
+    {
+        base.OnPaint(e);
+        if(scenarios.Visible)using(var pen=new Pen(Color.FromArgb(230,223,237)))e.Graphics.DrawLine(pen,D(36),scenarios.Top-1,D(812),scenarios.Top-1);
     }
     internal static Image ResizePicture(Image original, int size, bool trimTransparent = false)
     {
@@ -895,11 +909,11 @@ internal sealed class InstallerWindow : PrototypeWindow
     void DrawLoading(object sender, PaintEventArgs e)
     {
         e.Graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
-        float x = D(56) + progress / 100 * D(674);
+        float x = D(52) + progress / 100 * D(672);
         int bounce = working ? (int)(Math.Sin(animation * .65) * D(4)) : 0;
-        e.Graphics.DrawImageUnscaled(runner, (int)x - D(56), D(20) + bounce);
-        using (var track = new SolidBrush(Color.FromArgb(241, 232, 250))) e.Graphics.FillRectangle(track, D(38), D(107), D(710), D(8));
-        using (var fill = new SolidBrush(Accent)) e.Graphics.FillRectangle(fill, D(38), D(107), D(710) * progress / 100, D(8));
+        e.Graphics.DrawImageUnscaled(runner, (int)x - D(47), D(20) + bounce);
+        using (var track = new SolidBrush(Color.FromArgb(238,235,243))) using(var path=AntShape.Rounded(new RectangleF(D(52),D(107),D(672),D(7)),D(3))) e.Graphics.FillPath(track,path);
+        if(progress>0)using(var fill=new SolidBrush(Accent))using(var path=AntShape.Rounded(new RectangleF(D(52),D(107),Math.Max(D(7),D(672)*progress/100),D(7)),D(3)))e.Graphics.FillPath(fill,path);
     }
     void Tick(object sender, EventArgs e)
     {
@@ -921,7 +935,7 @@ internal sealed class InstallerWindow : PrototypeWindow
                 case 0: Setup.Prepare(); break;
                 case 1: Setup.SaveBackup(); break;
                 case 2: Setup.CopyCursors(); break;
-                case 3: Setup.Apply(); break;
+                case 3: Setup.ApplySize(Setup.RequestedPixels); break;
                 default: Finish(); return;
             }
             phase++;
@@ -950,60 +964,33 @@ internal sealed class InstallerWindow : PrototypeWindow
     }
     void Finish()
     {
-        timer.Stop(); working = false; loading.Visible = false; step.Visible = false; percent.Visible = false;
-        var close = Controls.Find("PrototypeClose",true); if (close.Length > 0) close[0].Visible = true;
-        var installing = Controls.Find("InstallingStatus",true); if (installing.Length > 0) installing[0].Visible = false;
-
-        title.Text = "小猫已就位";
-        subtitle.Text = "试试各个场景，也可以先预览其他指针大小。";
-        BuildScenarios();
-        int rows = (scenarios.Controls.Count + 1) / 2;
-        scenarios.Top = D(248);
-        scenarios.Height = D(rows * 65);
-        done.Top = restore.Top = scenarios.Bottom + D(31);
-        ClientSize = new Size(D(850), done.Bottom + D(22));
-        scenarios.Visible = true; done.Visible = true; restore.Visible = true;
-
-        appliedPixels = Setup.PreviewPixels; selectedPixels = appliedPixels;
-        RefreshPresets(); sizeControls.Visible = true;
+        timer.Stop();working=false;loading.Visible=false;step.Visible=false;percent.Visible=false;
+        var close=Controls.Find("PrototypeClose",true);if(close.Length>0)close[0].Visible=true;
+        var installing=Controls.Find("InstallingStatus",true);if(installing.Length>0)installing[0].Visible=false;
+        title.Text="小猫已就位";subtitle.Text="移动鼠标，试试小猫。";subtitle.Visible=true;subtitle.Font=new Font(Font.FontFamily,10.5f);
+        while(scenarios.Controls.Count>0)scenarios.Controls[0].Dispose();BuildScenarios();
+        int rows=(scenarios.Controls.Count+1)/2;scenarios.Top=D(180);scenarios.Height=D(rows*78);
+        done.Top=back.Top=scenarios.Bottom+D(31);ClientSize=new Size(D(850),done.Bottom+D(22));
+        scenarios.Visible=true;done.Visible=true;back.Visible=true;
     }
-    void RefreshPresets()
-    {
-        sizeLabel.Text = "指针大小";
-        for (int i = 0; i < presets.Length; i++) { presets[i].SelectedStyle = selectedPixels == presetPixels[i]; presets[i].Invalidate(); }
-        applySize.Enabled = !previewBusy && selectedPixels != appliedPixels;
-        sizeLabel.Text = "指针大小"; sizeStatus.Text = selectedPixels == appliedPixels ? "已应用 " + appliedPixels + " px" : "预览 " + selectedPixels + " px";
-    }
-    void RebuildSizePreview()
-    {
-            while (scenarios.Controls.Count > 0) scenarios.Controls[0].Dispose();
-            scenarios.Controls.Clear(); BuildScenarios();
-            subtitle.Text = "试试各个场景，也可以先预览其他指针大小。";
-    }
-    internal void Preview() { Finish(); }
+    internal void Preview(){Finish();}
     internal void VerifySizePreviews()
     {
-        foreach (int index in new int[] {0, 2, 1})
+        foreach(int pixels in new[]{25,45,35})
         {
-            presets[index].PerformClick();
-            DateTime deadline = DateTime.UtcNow.AddSeconds(30);
-            while (previewBusy && DateTime.UtcNow < deadline) { Application.DoEvents(); Thread.Sleep(10); }
-            if (previewError != null) throw new IOException(previewError);
-            if (previewBusy || Setup.PreviewPixels != presetPixels[index] || scenarios.Controls.Count == 0) throw new IOException("尺寸选项预览检查失败：期望" + presetPixels[index] + "，实际" + Setup.PreviewPixels + "，忙碌" + previewBusy + "，卡片" + scenarios.Controls.Count);
-            foreach (Control card in scenarios.Controls)
+            Setup.PrepareSize(pixels);Finish();Application.DoEvents();
+            foreach(Control card in scenarios.Controls)
             {
-                int cursorIndex = (int)card.Tag;
-                Setup.VerifyTrialCursor(card.Cursor.Handle, Setup.CursorPath(cursorIndex));
-                var picture = (CursorPixelPreview)card.Controls[0];
-                if (Math.Abs(Math.Max(picture.Image.Width, picture.Image.Height) - Setup.PreviewPixels) > 3) throw new IOException("预览图案大小异常");
-                picture.VerifyCentered();
+                int i=(int)card.Tag;Setup.VerifyTrialCursor(card.Cursor.Handle,Setup.CursorPath(i));
+                var image=(CursorPixelPreview)card.Controls[0];
+                if(Math.Abs(Math.Max(image.Image.Width,image.Image.Height)-pixels)>3)throw new IOException("尺寸资源与预览不一致");
+                image.VerifyCentered();
             }
-            using (var image = new Bitmap(Width, Height))
-            { DrawToBitmap(image, new Rectangle(Point.Empty, Size)); image.Save(Path.Combine(Setup.Root, "preview-" + Setup.PreviewPixels + ".png")); }
+            using(var bitmap=new Bitmap(Width,Height)){DrawToBitmap(bitmap,new Rectangle(Point.Empty,Size));bitmap.Save(Path.Combine(Setup.Root,"preview-"+pixels+".png"));}
         }
-        File.WriteAllText(Path.Combine(Setup.Root, "display-check.txt"), "UI thread cursor handles, pixels and hotspots match all selected size previews. Card centering verified. Fixed-pixel cursor creation: " + Setup.FixedPixelScalingAvailable + ". This does not measure the final desktop compositor output.");
+        File.WriteAllText(Path.Combine(Setup.Root,"display-check.txt"),"Picker draft sizing, accepted settings, cursor handles and centered trial previews verified. No system pointer settings changed.");
     }
-    internal void PreviewLoading() { working = false; progress = 55; step.Text = "安放两只小猫"; percent.Text = "55%"; }
+    internal void PreviewLoading() { working = false; progress = 55; step.Text = "备份原鼠标"; percent.Text = "55%"; }
     void BuildScenarios()
     {
         int cardIndex = 0;
@@ -1014,24 +1001,24 @@ internal sealed class InstallerWindow : PrototypeWindow
             if (!Setup.Enabled(i)) continue;
             var card = new ThemeCard { BackColor = Color.FromArgb(255, 255, 255) };
             card.Tag = i;
-            card.SetBounds(D(cardIndex % 2 * 400), D(cardIndex++ / 2 * 65), D(376), D(65));
+            card.SetBounds(D(cardIndex % 2 * 400), D(cardIndex++ / 2 * 78), D(376), D(78));
             IntPtr handle = Setup.LoadPreviewCursor(Setup.CursorPath(i));
             if (handle == IntPtr.Zero) throw new IOException("无法加载试用指针");
             var cursor = new Cursor(handle); card.Cursor = cursor;
             card.Disposed += delegate { cursor.Dispose(); Setup.DestroyCursor(handle); };
             Image thumbnail = CursorEncoder.ReadPixels(Setup.CursorPath(i));
             var picture = new CursorPixelPreview { Image = thumbnail, Cursor = cursor };
-            picture.SetBounds(D(-1), D(9), D(46), D(46)); card.Controls.Add(picture);
+            picture.SetBounds(D(4), D(15), D(48), D(48)); card.Controls.Add(picture);
             picture.Disposed += delegate { picture.Image.Dispose(); };
             var label = new Label { Text = Setup.Names[i], AutoSize = true, Font = new Font(Font.FontFamily, 10.5f, FontStyle.Bold), Cursor = cursor };
-            label.SetBounds(D(51), D(8), D(310), D(22)); card.Controls.Add(label);
-            var description = new Label { Text = descriptions[i], ForeColor = Muted, Cursor = cursor };
-            description.SetBounds(D(51), D(31), D(310), D(26)); card.Controls.Add(description);
+            label.SetBounds(D(63), D(13), D(300), D(22)); card.Controls.Add(label);
+            var description = new Label { Text = descriptions[i], ForeColor = Muted, Font=new Font(Font.FontFamily,9f), Cursor = cursor };
+            description.SetBounds(D(63), D(37), D(300), D(24)); card.Controls.Add(description);
             if (index == 1)
             {
                 description.Visible = false;
-                var input = new AntInput { Cursor = cursor };
-                input.SetBounds(D(51), D(31), D(200), D(28)); card.Controls.Add(input);
+                var input = new AntInput { Cursor = cursor, Font=new Font(Font.FontFamily,9.75f) };
+                input.SetBounds(D(63), D(34), D(200), D(32)); card.Controls.Add(input);
             }
             if (index == 2)
             {
@@ -1144,21 +1131,18 @@ internal sealed class AssignmentCard : Button
 
     protected override void OnPaint(PaintEventArgs e)
     {
-        e.Graphics.Clear(hovered ? Color.FromArgb(250, 246, 253) : Color.White);
-        float u = Width / 376f;
-        using (var pen = new Pen(Color.FromArgb(230, 223, 237))) e.Graphics.DrawLine(pen, 0, Height - 1, Width, Height - 1);
-        if (Image != null) e.Graphics.DrawImageUnscaled(Image, (int)(4*u), (Height - Image.Height) / 2);
-        TextRenderer.DrawText(e.Graphics, Text, Font, new Rectangle((int)(51*u), 0, (int)(160*u), Height), Color.FromArgb(41, 36, 57), TextFormatFlags.VerticalCenter);
-        var badge = new Rectangle(Width - (int)(58*u), (Height - (int)(26*u))/2, (int)(54*u), (int)(26*u));
-        using (var pill = AntShape.Rounded(badge, 6*u))
-        using (var fill = new SolidBrush(Assigned ? Color.FromArgb(241, 232, 250) : Color.FromArgb(244, 241, 246))) e.Graphics.FillPath(fill, pill);
-        TextRenderer.DrawText(e.Graphics, Status, new Font(Font.FontFamily, 9f), badge, Color.FromArgb(101, 65, 138), TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPadding);
+        e.Graphics.Clear(hovered?Color.FromArgb(247,244,250):Color.White);float u=Width/376f;
+        using(var pen=new Pen(Color.FromArgb(230,223,237)))e.Graphics.DrawLine(pen,0,Height-1,Width,Height-1);
+        if(Image!=null)e.Graphics.DrawImageUnscaled(Image,(int)(28*u)-Image.Width/2,(Height-Image.Height)/2);
+        TextRenderer.DrawText(e.Graphics,Text,Font,new Rectangle((int)(63*u),0,(int)(190*u),Height),Color.FromArgb(41,36,57),TextFormatFlags.VerticalCenter|TextFormatFlags.NoPadding);
+        using(var font=new Font(Font.FontFamily,9f))TextRenderer.DrawText(e.Graphics,Status,font,new Rectangle(Width-(int)(90*u),0,(int)(86*u),Height),Color.FromArgb(102,93,116),TextFormatFlags.Right|TextFormatFlags.VerticalCenter|TextFormatFlags.NoPadding);
+        if(Focused&&ShowFocusCues)ControlPaint.DrawFocusRectangle(e.Graphics,Rectangle.Inflate(ClientRectangle,-3,-3));
     }
 }
 
 internal sealed class AntButton : Button
 {
-    internal bool Primary, SelectedStyle, CatStyle, Plain;
+    internal bool Primary, SelectedStyle, CatStyle, Plain, Quiet, Segment, Leading;
     bool hovered, pressed;
     internal AntButton()
     {
@@ -1173,32 +1157,21 @@ internal sealed class AntButton : Button
     protected override void OnLostFocus(EventArgs e) { Invalidate(); base.OnLostFocus(e); }
     protected override void OnPaint(PaintEventArgs e)
     {
-        e.Graphics.Clear(Parent.BackColor);
-        e.Graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
-        float unit = Height / (CatStyle ? 52f : 42f);
-        Color blue = Color.FromArgb(101, 65, 138), hover = Color.FromArgb(86, 53, 120), active = Color.FromArgb(81, 46, 112);
-        Color state = pressed ? active : hovered ? hover : blue;
-        if (!Enabled) state = Color.FromArgb(190, 179, 203);
-        var rectangle = new RectangleF(1, 1, Width - 3, Height - 3);
-        using (var shape = AntShape.Rounded(rectangle, (CatStyle ? 12 : 9) * unit))
-        using (Brush brush = new SolidBrush(Primary ? state : SelectedStyle ? Color.FromArgb(241, 232, 250) : Color.FromArgb(255, 255, 255)))
-        using (var pen = new Pen(Primary || SelectedStyle || hovered || pressed ? state : Color.FromArgb(230, 223, 237), Math.Max(1, unit)))
+        float u=CatStyle?Height/56f:Segment?Height/32f:Quiet?Height/34f:Height/42f;
+        e.Graphics.Clear(Segment?Color.FromArgb(241,239,244):Parent.BackColor);e.Graphics.SmoothingMode=System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+        Color ink=Color.FromArgb(41,36,57), muted=Color.FromArgb(102,93,116), purple=Color.FromArgb(101,65,138);
+        Color fill=Primary?(hovered?Color.FromArgb(86,53,120):purple):Segment?(SelectedStyle?Color.White:hovered?Color.FromArgb(233,229,239):Color.FromArgb(241,239,244)):CatStyle?(SelectedStyle?Color.FromArgb(241,232,250):hovered?Color.FromArgb(245,243,248):Color.White):Quiet?(hovered?Color.FromArgb(233,226,241):Color.FromArgb(242,240,245)):hovered?Color.FromArgb(242,240,245):Color.White;
+        if(!Enabled)fill=Primary?Color.FromArgb(190,179,203):Color.FromArgb(246,245,248);
+        if(!Plain||hovered)using(var path=AntShape.Rounded(new RectangleF(.5f,.5f,Width-1,Height-1),(CatStyle?14:Segment?7:Quiet?9:10)*u))using(var brush=new SolidBrush(fill))e.Graphics.FillPath(brush,path);
+        var text=ClientRectangle;
+        if(CatStyle&&Image!=null)
         {
-            if (!Plain) { e.Graphics.FillPath(brush, shape); e.Graphics.DrawPath(pen, shape); }
+            int size=(int)(34*u);e.Graphics.DrawImage(Image,new Rectangle((int)(16*u),(Height-size)/2,size,size));text=new Rectangle((int)(58*u),0,Width-(int)(66*u),Height);
+            if(SelectedStyle)using(var font=new Font(Font.FontFamily,7.5f))TextRenderer.DrawText(e.Graphics,"✓",font,new Rectangle(Width-(int)(16*u),(int)(3*u),(int)(13*u),(int)(14*u)),purple,TextFormatFlags.NoPadding);
         }
-        if (Focused && ShowFocusCues)
-        {
-            using (var shape = AntShape.Rounded(new RectangleF(3, 3, Width - 7, Height - 7), 4 * unit))
-            using (var pen = new Pen(Primary ? Color.White : blue)) { pen.DashStyle = System.Drawing.Drawing2D.DashStyle.Dot; e.Graphics.DrawPath(pen, shape); }
-        }
-        var textBounds = ClientRectangle;
-        if (CatStyle && Image != null)
-        {
-            int size = (int)(34 * unit);
-            e.Graphics.DrawImage(Image, new Rectangle((int)(14*unit), (Height-size)/2, size, size));
-            textBounds = new Rectangle((int)(56*unit), 0, Width-(int)(64*unit), Height);
-        }
-        TextRenderer.DrawText(e.Graphics, Text, Font, textBounds, Plain ? Color.FromArgb(102,93,116) : Primary ? Color.White : SelectedStyle ? Color.FromArgb(101,65,138) : Color.FromArgb(41,36,57), (CatStyle ? TextFormatFlags.Left : TextFormatFlags.HorizontalCenter) | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
+        Color color=Primary?Color.White:!Enabled?Color.FromArgb(128,119,137):SelectedStyle||Quiet?purple:Plain||Segment?muted:ink;
+        TextRenderer.DrawText(e.Graphics,Text,Font,text,color,(CatStyle||Leading?TextFormatFlags.Left:TextFormatFlags.HorizontalCenter)|TextFormatFlags.VerticalCenter|TextFormatFlags.NoPadding);
+        if(Focused&&ShowFocusCues)using(var path=AntShape.Rounded(new RectangleF(2,2,Width-4,Height-4),7*u))using(var pen=new Pen(Primary?Color.White:purple)){pen.DashStyle=System.Drawing.Drawing2D.DashStyle.Dot;e.Graphics.DrawPath(pen,path);}
     }
 }
 
@@ -1243,6 +1216,7 @@ internal sealed class AntInput : UserControl
     void SetHover(bool value) { hovered = value; UpdateHint(); Invalidate(); }
     void UpdateHint()
     {
+        editor.BackColor=editor.Focused?Color.White:hovered?Color.FromArgb(238,235,242):Color.FromArgb(245,243,247);
         if (editor.IsHandleCreated) SendMessage(editor.Handle, 0x1501, IntPtr.Zero, hovered || editor.Focused ? "" : Hint);
     }
     protected override void OnCursorChanged(EventArgs e) { base.OnCursorChanged(e); editor.Cursor = Cursor; }
@@ -1259,9 +1233,9 @@ internal sealed class AntInput : UserControl
         e.Graphics.Clear(Parent == null ? BackColor : Parent.BackColor);
         e.Graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
         float unit = Height / 34f;
-        using (var path = AntShape.Rounded(new RectangleF(1, 1, Width - 3, Height - 3), 6 * unit))
-        using (var brush = new SolidBrush(Color.White))
-        using (var pen = new Pen(editor.Focused ? Color.FromArgb(174,105,49) : hovered ? Color.FromArgb(192,125,66) : Color.FromArgb(217,217,217), Math.Max(1, unit)))
+        using (var path = AntShape.Rounded(new RectangleF(1, 1, Width - 3, Height - 3), 8 * unit))
+        using (var brush = new SolidBrush(editor.Focused?Color.White:hovered?Color.FromArgb(238,235,242):Color.FromArgb(245,243,247)))
+        using (var pen = new Pen(editor.Focused ? Color.FromArgb(101,65,138) : Color.Transparent, Math.Max(1, unit)))
         { e.Graphics.FillPath(brush, path); e.Graphics.DrawPath(pen, path); }
     }
 }

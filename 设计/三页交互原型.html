@@ -12,6 +12,69 @@
 footer{display:flex;align-items:center;gap:10px;padding:18px 0 22px;margin-top:13px;flex-wrap:wrap}.push{margin-left:auto}.cta,.secondary{min-height:42px;border-radius:9px;padding:8px 16px;font-weight:700}.cta{background:var(--berry);border:1px solid var(--berry);color:white}.secondary{background:white;border:1px solid var(--line);color:var(--ink)}.status{color:var(--muted);font-size:13px}.stage{min-height:350px;display:grid;align-content:center;gap:18px;padding:24px 8px}.track{height:8px;background:var(--tint);border-radius:99px;position:relative;margin:46px 44px 0}.fill{height:100%;width:var(--progress);background:var(--berry);border-radius:99px}.runner{position:absolute;width:94px;height:78px;object-fit:contain;left:var(--progress);bottom:4px;transform:translateX(-50%)}.progressText{display:flex;justify-content:space-between;margin:0 44px;color:var(--muted);font-variant-numeric:tabular-nums}.sizes{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:22px 0 16px}.sizes button[aria-pressed=true]{background:var(--tint);color:var(--berry);border-color:var(--berry)}.trial{min-height:65px}.trial small{display:block;color:var(--muted)}.trial input{width:100%;max-width:200px;border:1px solid var(--line);border-radius:6px;padding:3px 7px;margin-top:3px}.trial button{padding:0;background:transparent;border:0;color:var(--berry);text-decoration:underline}
 @media(max-width:600px){.demo{margin-top:12px}.brand{padding-inline:16px}main{padding:22px 16px 0}.grid{grid-template-columns:1fr}.track,.progressText{margin-inline:28px}.nav span{width:100%}}
 .art-frame{width:36px;height:36px;position:relative;overflow:hidden;flex:none}.art-frame .art{position:absolute;max-width:none;object-fit:fill}.brand-close{margin-left:auto;width:38px;height:38px;border:1px solid var(--line);border-radius:8px;background:white;color:var(--ink);font-size:24px;line-height:1}.brand-close:hover{background:var(--tint)}
+.assignment-bar{display:flex;align-items:center;justify-content:space-between;gap:16px;margin:0 0 10px}.assignment-hint{margin:0;color:var(--muted);font-size:13px}.whole-cat{padding:6px 12px;min-height:34px;border:1px solid var(--line);border-radius:8px;background:white;color:var(--berry);font-size:13px;font-weight:700;white-space:nowrap}.whole-cat:hover:not(:disabled){background:var(--tint);border-color:var(--berry)}.whole-cat:disabled{opacity:1;color:var(--muted);background:#f7f5f9;font-weight:400}.cats{margin:0 0 14px}.pick-screen{min-height:0}.visually-hidden{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap;border:0}
+
+/* Quiet selection and action hierarchy: background and checkmark replace repeated outlines. */
+.cat{position:relative;border:0;background:transparent;padding:9px 16px;min-height:56px;border-radius:14px;transition:background .15s ease,color .15s ease}
+.cat:hover{background:#f5f3f8}
+.cat[aria-pressed=true]{background:var(--tint);color:var(--berry)}
+.cat[aria-pressed=true]::after{content:'✓';position:absolute;right:5px;top:3px;font-size:10px;line-height:14px;font-weight:700;color:var(--berry)}
+.cat:active{background:#e9dff2}
+.whole-cat{border:0;background:#f2f0f5;color:var(--berry);padding:7px 13px;min-height:34px;border-radius:9px;transition:background .15s ease}
+.whole-cat:hover:not(:disabled){background:#e9e2f1}
+.whole-cat:active:not(:disabled){background:#e1d7ec}
+.whole-cat:disabled{background:#f6f5f8;color:#807789;opacity:1;font-weight:400}
+.tag,.tag.on{background:transparent;color:var(--muted);padding:3px 0;border-radius:0;font-size:12px;font-weight:400}
+.row{transition:background .15s ease}
+button.row:hover{background:#f7f4fa}
+button.row:active{background:var(--tint)}
+@media(prefers-reduced-motion:reduce){.cat,.whole-cat,.row{transition:none}}
+
+/* Shared quiet controls for loading and completion pages. */
+.brand-close{border:0;background:transparent;color:var(--muted);border-radius:10px;transition:background .15s ease,color .15s ease}
+.brand-close:hover{background:#f2f0f5;color:var(--ink)}
+.sizes{gap:6px;margin:22px 0 18px}
+.sizes>strong{font-size:14px;margin-right:8px}
+.sizes .secondary{border:0;background:#f2f0f5;color:var(--muted);min-height:36px;padding:7px 14px;border-radius:9px;font-size:14px;transition:background .15s ease,color .15s ease}
+.sizes .secondary:hover:not(:disabled){background:#e9e2f1;color:var(--berry)}
+.sizes button[aria-pressed=true]{background:var(--tint);color:var(--berry)}
+.sizes #sizeApply{margin-left:8px;color:var(--berry)}
+.sizes #sizeApply:disabled{opacity:1;background:#f6f5f8;color:#807789}
+.sizes .status{margin-left:7px;font-size:12px}
+.trial input{background:#f5f3f7;border:1px solid transparent;border-radius:8px;padding:6px 9px;color:var(--ink);font-size:13px;transition:background .15s ease,border-color .15s ease}
+.trial input::placeholder{color:#807789}
+.trial input:hover{background:#eeebf2}
+.trial input:focus{background:white;border-color:var(--berry);outline:2px solid #65418a20;outline-offset:1px}
+.trial button{font-size:13px;text-underline-offset:3px}
+.trial small{font-size:12px}
+.trial{min-height:70px}
+#restore{font-size:14px;border-radius:9px;padding:8px 12px}
+#restore:hover{background:#f2f0f5;color:var(--ink)}
+.cta{border:0;border-radius:10px;transition:background .15s ease,transform .15s ease}
+.cta:hover:not(:disabled){background:#563578}
+.cta:active:not(:disabled){transform:translateY(1px)}
+.track{height:7px;background:#eeebf3}
+.fill{background:var(--berry);transition:width .2s linear}
+.runner{transition:left .2s linear}
+.progressText{font-size:13px}
+.progressText strong{color:var(--berry);font-weight:600}
+@media(prefers-reduced-motion:reduce){.brand-close,.sizes .secondary,.trial input,.cta,.fill,.runner{transition:none}}
+
+/* One decision page, one application, then a focused trial page. */
+.pick-footer{justify-content:space-between;gap:20px;margin-top:14px;padding-top:16px}
+.size-setting{display:flex;align-items:center;gap:14px}
+.size-caption{font-size:13px;color:var(--muted);white-space:nowrap}
+.size-segments{display:flex;gap:3px;padding:3px;background:#f1eff4;border-radius:10px}
+.size-segments button{border:0;background:transparent;color:var(--muted);min-width:44px;min-height:32px;padding:5px 12px;border-radius:7px;font-size:13px}
+.size-segments button:hover{color:var(--ink);background:#e9e5ef}
+.size-segments button[aria-pressed=true]{background:white;color:var(--berry);font-weight:700;box-shadow:0 1px 4px #29243912}
+.pick-screen .row{min-height:65px}
+.assignment-bar{margin-bottom:8px}
+.done-screen{min-height:0}.done-screen h1{font-size:26px}.done-intro{font-size:14px;margin-top:8px;margin-bottom:24px}
+.trial-grid .row{min-height:78px}.trial-grid .art-frame{margin-right:2px}
+.load-screen{min-height:440px}.stage{min-height:320px}.load-screen h1{font-size:26px}
+#back{padding-left:0;font-size:14px}#back:hover{color:var(--berry)}
+@media(max-width:440px){.pick-footer{gap:14px}.size-setting{gap:8px}.size-segments button{min-width:35px;padding:5px 8px}.pick-footer .cta{padding:8px 12px}.done-screen footer{gap:6px}.done-screen footer .plain{font-size:13px;padding-inline:7px}}
 </style>
 <div class="demo">
 <nav class="nav" aria-label="原型页面"><span>交互原型 · 不修改系统指针</span><button data-page="pick">选猫页</button><button data-page="load">加载页</button><button data-page="done">完成页</button></nav>
@@ -22,19 +85,19 @@ const names=['正常选择','文字输入','链接点击','不可用','忙碌中
 const variants=['calico-normal','silver-text','silver-link','silver-no','silver-busy','calico-move','calico-horizontal','calico-vertical'];
 const cats=['银渐层','三花','橘猫','狸花猫','德文'], defaults=[0,0,0,0,0,0,0,0];
 const descriptions=['移动鼠标试试','输入几个字','点一下链接','此操作暂不可用','查看等待指针','在区域内移动','左右移动鼠标','上下移动鼠标'];
-let choices=[...defaults],cat=0,selected=35,applied=35,timer,page='pick';
+let choices=[...defaults],cat=0,selected=35,applied=35,timer,page='pick',assignmentNotice='',appliedChoices=[...defaults],hasApplied=false;
 const screen=document.querySelector('#screen'),step=document.querySelector('#step');
 const asset=(i,c)=>['银渐层设计方案','三花设计方案'][c]+'/'+names[i]+'.png';
 const artBounds={"银渐层设计方案/上下调整.png": [560, 560, 29, 24, 530, 536], "银渐层设计方案/不可用.png": [560, 560, 33, 24, 527, 536], "银渐层设计方案/左右调整.png": [560, 560, 24, 129, 536, 430], "银渐层设计方案/忙碌中.png": [560, 560, 24, 27, 536, 533], "银渐层设计方案/文字输入.png": [560, 560, 39, 24, 521, 536], "银渐层设计方案/正常选择.png": [560, 560, 32, 24, 527, 536], "银渐层设计方案/移动画布.png": [560, 560, 24, 62, 536, 497], "银渐层设计方案/链接点击.png": [560, 560, 67, 24, 493, 536], "三花设计方案/上下调整.png": [560, 560, 69, 24, 490, 536], "三花设计方案/不可用.png": [560, 560, 68, 24, 491, 536], "三花设计方案/左右调整.png": [560, 560, 24, 130, 536, 430], "三花设计方案/忙碌中.png": [560, 560, 24, 51, 536, 509], "三花设计方案/文字输入.png": [560, 560, 71, 24, 488, 536], "三花设计方案/正常选择.png": [560, 560, 50, 24, 510, 536], "三花设计方案/移动画布.png": [560, 560, 24, 107, 536, 452], "三花设计方案/链接点击.png": [560, 560, 30, 24, 529, 536]};
 const sheets=[{"src":"../\u7d20\u6750/\u65b0\u732b\u76ae\u80a4/orange.png","boxes":[[1774,887,91,57,409,413],[1774,887,556,105,809,399],[1774,887,908,51,1299,394],[1774,887,1386,60,1696,418],[1774,887,58,531,389,803],[1774,887,497,503,862,842],[1774,887,918,548,1274,766],[1774,887,1423,492,1722,828]]},{"src":"../\u7d20\u6750/\u65b0\u732b\u76ae\u80a4/tabby.png","boxes":[[1774,887,89,31,387,412],[1774,887,569,110,799,385],[1774,887,906,37,1287,414],[1774,887,1418,33,1711,414],[1774,887,64,500,388,827],[1774,887,479,469,843,855],[1774,887,889,548,1297,783],[1774,887,1408,474,1709,853]]},{"src":"../\u7d20\u6750/\u65b0\u732b\u76ae\u80a4/devon.png","boxes":[[1774,887,90,39,395,413],[1774,887,547,113,827,377],[1774,887,903,52,1272,397],[1774,887,1393,48,1698,415],[1774,887,54,520,383,806],[1774,887,493,488,848,839],[1774,887,915,529,1273,768],[1774,887,1421,480,1714,829]]}];
 const revisedArt={"2:1":{"src":"../\u7d20\u6750/\u65b0\u732b\u76ae\u80a4/text-v2.png","box":[2172,724,156,154,612,602]},"3:1":{"src":"../\u7d20\u6750/\u65b0\u732b\u76ae\u80a4/text-v2.png","box":[2172,724,879,154,1319,602]},"4:1":{"src":"../\u7d20\u6750/\u65b0\u732b\u76ae\u80a4/text-v2.png","box":[2172,724,1603,154,2063,602]},"3:0":{"src":"../\u7d20\u6750/\u65b0\u732b\u76ae\u80a4/tabby-v2.png","box":[2172,724,93,29,647,676]},"3:6":{"src":"../\u7d20\u6750/\u65b0\u732b\u76ae\u80a4/tabby-v2.png","box":[2172,724,735,136,1391,643]},"3:4":{"src":"../\u7d20\u6750/\u65b0\u732b\u76ae\u80a4/tabby-v2.png","box":[2172,724,1499,69,2105,642]}};
-const art=(i,c)=>{
+const art=(i,c,pixels=34,frame=36)=>{
  const revision=revisedArt[c+":"+i], sheet=sheets[c-2];
  const src=revision?revision.src:sheet?sheet.src:asset(i,c);
  const [w,h,l,t,r,b]=revision?revision.box:sheet?sheet.boxes[i]:artBounds[src];
- const scale=34/Math.max(r-l,b-t);
+ const scale=pixels/Math.max(r-l,b-t);
  const clip=sheet?'clip-path:inset('+[t,w-r,h-b,l].map(n=>n*scale+'px').join(' ')+');':'';
- return '<span class="art-frame"><img class="art" src="'+src+'" alt="" style="'+clip+'width:'+w*scale+'px;height:'+h*scale+'px;left:'+(18-(l+r)*scale/2)+'px;top:'+(18-(t+b)*scale/2)+'px"></span>';
+ return '<span class="art-frame" style="width:'+frame+'px;height:'+frame+'px"><img class="art" src="'+src+'" alt="" style="'+clip+'width:'+w*scale+'px;height:'+h*scale+'px;left:'+(frame/2-(l+r)*scale/2)+'px;top:'+(frame/2-(t+b)*scale/2)+'px"></span>';
 };
 const panel=document.querySelector('.window'), windowClose=document.querySelector('#windowClose');
 function closePreview(){
@@ -45,30 +108,30 @@ function closePreview(){
 }
 windowClose.onclick=closePreview;
 function view(next,animate=false,focus=''){
-clearInterval(timer);page=next;panel.hidden=false;
+clearInterval(timer);page=next;panel.hidden=false;screen.className=page+'-screen';
 document.querySelectorAll('[data-page]').forEach(b=>b.setAttribute('aria-current',b.dataset.page===page));
-step.textContent='正在安装';step.hidden=page!=='load';windowClose.hidden=page==='load';
+step.textContent='正在应用';step.hidden=page!=='load';windowClose.hidden=page==='load';
 if(page==='pick'){
  const total=choices.filter(c=>c>=0).length;
- screen.innerHTML='<h1 tabindex="-1">为指针挑选小猫</h1><p>选好小猫后，可全部使用这只猫，也可以逐项分配。再次点击已分配项可取消。</p><div class="cats" aria-label="选择小猫">'+cats.map((n,c)=>'<button class="cat" id="cat'+c+'" aria-pressed="'+(c===cat)+'">'+art(0,c)+n+'</button>').join('')+'<button class="secondary" id="applyAll" type="button">全部使用这只猫</button></div><div class="grid">'+names.map((n,i)=>'<button class="row" id="row'+i+'" aria-pressed="'+(choices[i]===cat)+'">'+art(i,choices[i]<0?cat:choices[i])+'<strong>'+n+'</strong><span class="tag '+(choices[i]>=0?'on':'')+'">'+(cats[choices[i]]??'保留原指针')+'</span></button>').join('')+'</div><footer><button class="plain" id="reset">恢复推荐搭配</button><span class="status push" aria-live="polite">已分配 '+total+' 项</span><button class="cta" id="apply" '+(total?'':'disabled')+'>应用指针</button></footer>';
- cats.forEach((_,i)=>document.querySelector('#cat'+i).onclick=()=>{cat=i;view('pick',false,'cat'+i)});
- document.querySelector('#applyAll').onclick=()=>{choices=Array(names.length).fill(cat);view('pick',false,'applyAll')};
- names.forEach((_,i)=>document.querySelector('#row'+i).onclick=()=>{choices[i]=choices[i]===cat?-1:cat;view('pick',false,'row'+i)});
- document.querySelector('#reset').onclick=()=>{choices=[...defaults];view('pick',false,'reset')};
- document.querySelector('#apply').onclick=()=>view('load',true);
+ const allCurrent=choices.every(c=>c===cat);
+ screen.innerHTML='<h1 class="visually-hidden" tabindex="-1">搭配鼠标皮肤</h1><div class="cats" aria-label="选择小猫">'+cats.map((n,c)=>'<button class="cat" id="cat'+c+'" aria-pressed="'+(c===cat)+'">'+art(0,c)+n+'</button>').join('')+'</div><div class="assignment-bar"><p class="assignment-hint">选小猫，点指针搭配</p><button class="whole-cat" id="applyAll" type="button" '+(allCurrent?'disabled':'')+'>'+(allCurrent?'已全部使用 ✓':'全部用'+cats[cat])+'</button></div><span class="visually-hidden" role="status" aria-live="polite">'+assignmentNotice+'</span><div class="grid">'+names.map((n,i)=>'<button class="row" id="row'+i+'" aria-pressed="'+(choices[i]===cat)+'">'+art(i,choices[i]<0?cat:choices[i],selected,48)+'<strong>'+n+'</strong><span class="tag '+(choices[i]>=0?'on':'')+'">'+(cats[choices[i]]??'保留原指针')+'</span></button>').join('')+'</div><footer class="pick-footer"><div class="size-setting"><span class="size-caption" id="sizeCaption">指针大小</span><div class="size-segments" role="group" aria-labelledby="sizeCaption">'+[25,35,45].map((n,i)=>'<button type="button" id="s'+n+'" aria-pressed="'+(n===selected)+'">'+['小','中','大'][i]+'</button>').join('')+'</div></div><button class="cta push" id="apply" '+(total?'':'disabled')+'>应用指针</button></footer>';
+ cats.forEach((_,i)=>document.querySelector('#cat'+i).onclick=()=>{cat=i;assignmentNotice='';view('pick',false,'cat'+i)});
+ document.querySelector('#applyAll').onclick=()=>{choices=Array(names.length).fill(cat);assignmentNotice='已将8种指针设为'+cats[cat]+'，还可以逐项调整。';view('pick',false,'cat'+cat)};
+ names.forEach((_,i)=>document.querySelector('#row'+i).onclick=()=>{choices[i]=choices[i]===cat?-1:cat;assignmentNotice='';view('pick',false,'row'+i)});
+ [25,35,45].forEach(n=>document.querySelector('#s'+n).onclick=()=>{selected=n;view('pick',false,'s'+n)});
+ document.querySelector('#apply').onclick=()=>{appliedChoices=[...choices];applied=selected;hasApplied=true;view('load',true)};
 }else if(page==='load'){
- screen.innerHTML='<h1 tabindex="-1">小猫正在赶来</h1><p>正在为所选场景应用鼠标指针。</p><div class="stage"><div class="track" id="track" role="progressbar" aria-label="安装进度" aria-valuemin="0" aria-valuemax="100"><div class="fill"></div><img class="runner" src="../素材/银白猫-向右奔跑.png" alt=""></div><div class="progressText"><span id="phase"></span><strong id="pct"></strong></div></div>';
+ screen.innerHTML='<h1 tabindex="-1">小猫正在赶来</h1><div class="stage"><div class="track" id="track" role="progressbar" aria-label="安装进度" aria-valuemin="0" aria-valuemax="100"><div class="fill"></div><img class="runner" src="../素材/银白猫-向右奔跑.png" alt=""></div><div class="progressText"><span id="phase"></span><strong id="pct"></strong></div></div>';
  const update=n=>{const track=document.querySelector('#track');track.style.setProperty('--progress',n+'%');track.setAttribute('aria-valuenow',n);document.querySelector('#pct').textContent=n+'%';document.querySelector('#phase').textContent=n<30?'检查指针':n<60?'备份原鼠标':n<100?'应用猫咪指针':'应用完成'};
  let n=animate?0:56;update(n);
  if(animate)timer=setInterval(()=>{n+=4;update(n);if(n===100){clearInterval(timer);timer=setTimeout(()=>view('done',false,'heading'),240)}},80);
  if(animate)focus='heading';
 }else{
- const items=names.map((n,i)=>[n,i]).filter(([n,i])=>choices[i]>=0);
- screen.innerHTML='<h1 tabindex="-1">小猫已就位</h1><p>试试各个场景，也可以先预览其他指针大小。</p><div class="sizes"><strong>指针大小</strong>'+[25,35,45].map((n,i)=>'<button id="s'+n+'" class="secondary" aria-pressed="'+(n===selected)+'">'+['小','中','大'][i]+'</button>').join('')+'<button id="sizeApply" class="secondary" '+(selected===applied?'disabled':'')+'>应用大小</button><span class="status" aria-live="polite">'+(selected===applied?'已应用 '+applied+' px':'预览 '+selected+' px')+'</span></div><div class="grid">'+(items.length?items.map(([n,i])=>'<div class="row trial">'+art(i,choices[i])+'<div><strong>'+n+'</strong>'+(i===1?'<input aria-label="试用文字输入" placeholder="输入几个字">':i===2?'<small><button id="link">点一下链接</button></small>':'<small>'+descriptions[i]+'</small>')+'</div></div>').join(''):'<p>还没有分配指针。</p>')+'</div><footer><button id="restore" class="plain">恢复原鼠标</button><button id="close" class="cta push">完成</button></footer>';
- [25,35,45].forEach(n=>document.querySelector('#s'+n).onclick=()=>{selected=n;view('done',false,'s'+n)});
- document.querySelector('#sizeApply').onclick=()=>{applied=selected;view('done',false,'s'+selected)};
+ const shownChoices=hasApplied?appliedChoices:choices, shownSize=hasApplied?applied:selected;
+ const items=names.map((n,i)=>[n,i]).filter(([n,i])=>shownChoices[i]>=0);
+ screen.innerHTML='<h1 tabindex="-1">小猫已就位</h1><p class="done-intro">移动鼠标，试试小猫。</p><div class="grid trial-grid">'+(items.length?items.map(([n,i])=>'<div class="row trial">'+art(i,shownChoices[i],shownSize,48)+'<div><strong>'+n+'</strong>'+(i===1?'<input aria-label="试用文字输入" placeholder="输入几个字">':i===2?'<small><button id="link">点一下链接</button></small>':'<small>'+descriptions[i]+'</small>')+'</div></div>').join(''):'<p>还没有分配指针。</p>')+'</div><footer><button id="back" class="plain">← 返回调整</button><button id="close" class="cta push">完成</button></footer>';
+ document.querySelector('#back').onclick=()=>{choices=[...shownChoices];selected=shownSize;view('pick',false,'cat'+cat)};
  const link=document.querySelector('#link');if(link)link.onclick=()=>{link.textContent='点击成功'};
- document.querySelector('#restore').onclick=()=>{choices=Array(8).fill(-1);view('pick',false,'heading')};
  document.querySelector('#close').onclick=closePreview;
 }
 if(focus==='heading')screen.querySelector('h1').focus();else if(focus)document.getElementById(focus)?.focus();
@@ -77,3 +140,4 @@ document.querySelectorAll('[data-page]').forEach(b=>b.onclick=()=>view(b.dataset
 view('pick');
 </script>
 </html>
+

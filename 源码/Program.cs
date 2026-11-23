@@ -687,10 +687,10 @@ internal sealed class CatPicker : PrototypeWindow
         cats.SetBounds(36,94,776,56); cats.AutoScroll=false; cats.WrapContents=false; cats.Margin=Padding.Empty; cats.Padding=Padding.Empty; Controls.Add(cats);
         for(int i=0;i<names.Length;i++)
         {
-            int c=i; var button=new AntButton {Text=names[i],CatStyle=true,Font=new Font(Font.FontFamily,11.25f,FontStyle.Bold),Width=(i==0||i==3)?121:106,Height=56,Margin=new Padding(0,0,10,0)};
+            int c=i; var button=new AntButton {Text=names[i],CatStyle=true,Font=new Font(Font.FontFamily,11.25f,FontStyle.Bold),Width=(names[i]=="银渐层"||names[i]=="狸花猫")?121:106,Height=56,Margin=new Padding(0,0,10,0)};
             button.Click+=delegate {selected=c;RefreshChoices();};
             using(var stream=Setup.Resource(i==defaults[0]?"picture0":"picture0-"+(i+1)))
-            using(var image=Image.FromStream(stream)) button.Image=InstallerWindow.ResizePicture(image,34,true);
+            using(var image=Image.FromStream(stream)) button.Image=InstallerWindow.ResizePicture(image,(int)Math.Round(34*scale),true);
             button.Disposed+=delegate {if(button.Image!=null)button.Image.Dispose();}; catButtons[i]=button;cats.Controls.Add(button);
         }
         Controls.Add(new Label {Text="选小猫，点指针搭配",AutoSize=true,Left=36,Top=174,Font=new Font(Font.FontFamily,9.75f),ForeColor=Color.FromArgb(102,93,116)});
@@ -734,6 +734,7 @@ internal sealed class CatPicker : PrototypeWindow
     internal void VerifyAssignments()
     {
         if(Array.Exists(Choices,c=>c!=0))throw new IOException("默认应为全银渐层");
+        foreach(var button in catButtons)if(button.Image.Width!=(int)Math.Round(34*scale))throw new IOException("选猫图标未按最终像素生成");
         catButtons[1].PerformClick();if(Array.Exists(Choices,c=>c!=0))throw new IOException("选猫不应改变搭配");
         assignments[1].PerformClick();assignments[2].PerformClick();
         if(Choices[0]!=0||Choices[1]!=1||Choices[2]!=1)throw new IOException("连续混搭失败");
@@ -745,7 +746,7 @@ internal sealed class CatPicker : PrototypeWindow
         applyAll.PerformClick();if(Array.Exists(Choices,c=>c!=1)||applyAll.Enabled)throw new IOException("整套使用状态错误");
         assignments[0].PerformClick();if(Choices[0]!=-1||!applyAll.Enabled)throw new IOException("取消单项失败");
         Array.Copy(defaults,Choices,8);ChosenPixels=35;selected=0;RefreshChoices();
-        using(var returned=new CatPicker(XDocument.Parse("<cats defaults='0,0,0,0,0,0,0,0'><cat name='银渐层'/><cat name='三花'/><cat name='橘猫'/><cat name='狸花猫'/><cat name='德文'/></cats>"),new[]{0,1,0,0,0,0,0,0},45))
+        using(var returned=new CatPicker(XDocument.Parse("<cats defaults='0,0,0,0,0,0,0,0'><cat name='银渐层'/><cat name='三花'/><cat name='狸花猫'/><cat name='德文'/></cats>"),new[]{0,1,0,0,0,0,0,0},45))
             if(returned.Choices[1]!=1||returned.ChosenPixels!=45)throw new IOException("返回调整丢失设置");
     }
     internal int[] ResourceChoices()
@@ -1166,7 +1167,7 @@ internal sealed class AntButton : Button
         var text=ClientRectangle;
         if(CatStyle&&Image!=null)
         {
-            int size=(int)(34*u);e.Graphics.DrawImage(Image,new Rectangle((int)(16*u),(Height-size)/2,size,size));text=new Rectangle((int)(58*u),0,Width-(int)(66*u),Height);
+            int size=Image.Width;e.Graphics.DrawImageUnscaled(Image,(int)Math.Round(16*u),(Height-size)/2);text=new Rectangle((int)(58*u),0,Width-(int)(66*u),Height);
             if(SelectedStyle)using(var font=new Font(Font.FontFamily,7.5f))TextRenderer.DrawText(e.Graphics,"✓",font,new Rectangle(Width-(int)(16*u),(int)(3*u),(int)(13*u),(int)(14*u)),purple,TextFormatFlags.NoPadding);
         }
         Color color=Primary?Color.White:!Enabled?Color.FromArgb(128,119,137):SelectedStyle||Quiet?purple:Plain||Segment?muted:ink;

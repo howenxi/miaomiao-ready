@@ -86,14 +86,13 @@ button.row:active{background:var(--tint)}
 </style>
 <div class="demo">
 <nav class="nav" aria-label="原型页面"><span>交互原型 · 不修改系统指针</span><button data-page="pick">选猫页</button><button data-page="load">加载页</button><button data-page="done">完成页</button></nav>
-<div class="demo-state"><label for="demoState">预览情景</label><select id="demoState"><option value="normal">支持调整大小</option><option value="unsupported">大小跟随系统</option><option value="fallback" selected>调整失败，继续应用</option></select></div>
 <div class="window"><header class="brand"><img src="../素材/银白猫-品牌坐姿.png" alt=""><strong>喵喵就位</strong><small id="step"></small><button class="brand-close" id="windowClose" type="button" aria-label="关闭窗口" hidden>×</button></header><main id="screen"></main></div>
 </div>
 <script>
 const names=['正常选择','文字输入','链接点击','不可用','忙碌中','移动画布','左右调整','上下调整'];
 const variants=['calico-normal','silver-text','silver-link','silver-no','silver-busy','calico-move','calico-horizontal','calico-vertical'];
 const cats=['银渐层','三花','狸花猫','德文'], defaults=[0,0,0,0,0,0,0,0];
-let sizeScenario='fallback';
+let sizeScenario='normal';
 const descriptions=['移动鼠标试试','输入几个字','点一下链接','此操作暂不可用','查看等待指针','在区域内移动','左右移动鼠标','上下移动鼠标'];
 let choices=[...defaults],cat=0,selected=45,applied=45,timer,page='pick',assignmentNotice='',appliedChoices=[...defaults],hasApplied=false;
 const screen=document.querySelector('#screen'),step=document.querySelector('#step');
@@ -143,8 +142,6 @@ if(page==='pick'){
 if(focus==='heading')screen.querySelector('h1').focus();else if(focus)document.getElementById(focus)?.focus();
 }
 document.querySelectorAll('[data-page]').forEach(b=>b.onclick=()=>view(b.dataset.page,b.dataset.page==='load'));
-document.querySelector('#demoState').onchange=e=>{sizeScenario=e.target.value;view(page==='load'?'pick':page)};
-view('done');
+view('pick');
 </script>
 </html>
-

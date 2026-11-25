@@ -20,7 +20,7 @@ internal static class Program
         {
             Setup.Root = Path.GetFullPath(args[1]);
             Setup.Prepare(); Setup.CopyCursors(); Setup.SaveBackup();
-            try { Setup.Apply(); foreach (int size in new int[] {25, 35, 45}) { Setup.ApplySize(size); Setup.VerifyNativeSizes(); } }
+            try { Setup.Apply(); foreach (int size in new int[] {35, 45, 55}) { Setup.ApplySize(size); Setup.VerifyNativeSizes(); } }
             finally { Setup.Restore(); }
             Setup.VerifyRestored();
             File.WriteAllText(Path.Combine(Setup.Root, "integration-passed.txt"), "Applied all eight cursors, refreshed Windows, restored original values, refreshed Windows again, verified registry values and types match backup.");
@@ -41,6 +41,7 @@ internal static class Program
                 { form.DrawToBitmap(image, new Rectangle(Point.Empty, form.Size)); image.Save(Path.Combine(Setup.Root, "loading.png")); }
                 form.Preview(); Application.DoEvents();
                 form.VerifySizePreviews();
+                form.VerifyCompatibilityStates();
                 using (var image = new Bitmap(form.Width, form.Height))
                 { form.DrawToBitmap(image, new Rectangle(Point.Empty, form.Size)); image.Save(Path.Combine(Setup.Root, "preview.png")); }
             }
@@ -75,8 +76,22 @@ internal static class Setup
     static readonly int[] choices = new int[8];
     static string ThemeFolder { get { return "cursors-v1" + (variantMode ? "-" + string.Join("_", Array.ConvertAll(choices, n => n.ToString())) : ""); } }
     static bool variantMode;
-    internal static int RequestedPixels = 35;
+    internal static int RequestedPixels = 45;
     internal static bool ReturnToPicker;
+    internal static bool SystemSizeUsed, SizeAdjustmentFailed;
+    internal static bool? SizeCapabilityOverride;
+    internal static bool CanAdjustSize { get { return SizeCapabilityOverride ?? (RuntimeCursorBaseSize() > 0); } }
+    internal static string SizeResultText { get { return SizeAdjustmentFailed ? "未能固定显示大小，已应用所选尺寸的小猫皮肤，实际显示以系统为准。" : "指针大小随系统"; } }
+    internal static void LogError(Exception error)
+    {
+        try { Directory.CreateDirectory(Root); File.AppendAllText(Path.Combine(Root,"diagnostic.log"),DateTime.Now.ToString("s")+" "+Environment.OSVersion+Environment.NewLine+error+Environment.NewLine); } catch { }
+    }
+    internal static bool TrySizePolicy(Action fixedSize, Action systemSize)
+    {
+        try { fixedSize(); return true; }
+        catch (SizeAdjustmentException ex) { LogError(ex); systemSize(); return false; }
+    }
+
     static int[] acceptedCats;
 
     internal static void TestCatSelection(string output)
@@ -135,27 +150,29 @@ internal static class Setup
     }
     static System.Collections.Generic.IEnumerable<XElement> ThemeEntries()
     {
+        var result = new System.Collections.Generic.List<XElement>();
         using (var stream = Resource("theme"))
         foreach (var entry in XDocument.Load(stream).Root.Elements("cursor"))
         {
             int index = (int)entry.Attribute("index");
             if (!Enabled(index)) continue;
-            if (choices[index] == 0) { yield return entry; continue; }
+            if (choices[index] == 0) { result.Add(new XElement(entry)); continue; }
             foreach (var variant in entry.Elements("variant"))
-                if ((int)variant.Attribute("number") == choices[index]) { yield return variant; break; }
+                if ((int)variant.Attribute("number") == choices[index]) { result.Add(new XElement(variant)); break; }
         }
+        return result;
     }
     internal static bool SelfTesting;
     internal static string SizedFolder;
-    internal static int PreviewPixels = 35;
+    internal static int PreviewPixels = 45;
     internal static string CursorPath(int index)
     {
         return Path.Combine(SizedFolder ?? Path.Combine(Root, ThemeFolder), Names[index] + ".cur");
     }
     internal static void PrepareSize(int pixels)
     {
-        if (pixels != 25 && pixels != 35 && pixels != 45) throw new ArgumentOutOfRangeException("pixels");
-        string folder = Path.Combine(Root, ThemeFolder, "size-native-v3-" + pixels);
+        if (pixels != 35 && pixels != 45 && pixels != 55) throw new ArgumentOutOfRangeException("pixels");
+        string folder = Path.Combine(Root, ThemeFolder, "size-native-v4-" + pixels);
         if (!Directory.Exists(folder))
         {
             string staging = folder + "." + Guid.NewGuid().ToString("N");
@@ -222,7 +239,7 @@ internal static class Setup
         // avoids recreating values that were absent in the original settings.
         if (!SystemParametersInfo(0x2029, 0, new IntPtr(size), 0) || RuntimeCursorBaseSize() != size)
         {
-            if (required) throw new IOException("Windows 未能同步实时鼠标大小，请先在系统鼠标设置中将大小调到最小后重试。");
+            if (required) throw new SizeAdjustmentException("Windows 未能同步实时鼠标大小。");
         }
     }
     [DllImport("user32.dll", CharSet = CharSet.Unicode, EntryPoint = "SendNotifyMessageW")]
@@ -240,7 +257,7 @@ internal static class Setup
     [DllImport("gdi32.dll")] static extern IntPtr CreateBitmap(int width, int height, uint planes, uint bits, byte[] data);
     [DllImport("user32.dll")] static extern IntPtr CreateIconIndirect(ref CursorInfo info);
     // Windows 11 otherwise virtualizes in-memory cursors for the monitor DPI.
-    // Keep the agreed 25/35/45 physical pixels, just like the unscaled preview.
+    // Keep the agreed 35/45/55 physical pixels, just like the unscaled preview.
     [DllImport("user32.dll")] static extern uint SetThreadCursorCreationScaling(uint dpi);
     internal static bool FixedPixelScalingAvailable;
     internal static IntPtr LoadPreviewCursor(string path)
@@ -453,7 +470,7 @@ internal static class Setup
         }
         var root = new XElement("cursorBackup");
         int runtimeSize = RuntimeCursorBaseSize();
-        root.SetAttributeValue("runtimeCursorBaseSize", runtimeSize > 0 ? runtimeSize : 32);
+        root.SetAttributeValue("runtimeCursorBaseSize", runtimeSize);
         foreach (string role in Roles) root.Add(Capture(CursorKey, role));
         root.Add(Capture(CursorKey, ""));
         root.Add(Capture(CursorKey, "Scheme Source"));
@@ -480,7 +497,7 @@ internal static class Setup
         }
         string previousFolder = SizedFolder;
         int previousSize = PreviewPixels;
-        try { foreach (int size in new int[] {25, 35, 45}) PrepareSize(size); }
+        try { foreach (int size in new int[] {35, 45, 55}) PrepareSize(size); }
         finally { SizedFolder = previousFolder; PreviewPixels = previousSize; }
     }
     internal static void Apply()
@@ -489,7 +506,7 @@ internal static class Setup
         {
             int saved;
             string setting = Path.Combine(Root, ThemeFolder, "size.txt");
-            if (File.Exists(setting) && int.TryParse(File.ReadAllText(setting), out saved)) PrepareSize(saved <= 25 ? 25 : saved <= 35 ? 35 : 45); else PrepareSize(35);
+            if (File.Exists(setting) && int.TryParse(File.ReadAllText(setting), out saved)) PrepareSize(saved <= 35 ? 35 : saved <= 45 ? 45 : 55); else PrepareSize(45);
         }
         Changed = true;
         using (var key = Registry.CurrentUser.CreateSubKey(CursorKey))
@@ -511,12 +528,48 @@ internal static class Setup
             // The three presets already encode their final physical pixel size.
             // Accessibility magnification is independent of cursor-creation DPI
             // and otherwise enlarges the installed system cursor a second time.
-            key.SetValue("CursorBaseSize", 32, RegistryValueKind.DWord);
+            // Size settings are changed only after the capability check below.
         }
-        using (var key = Registry.CurrentUser.CreateSubKey(AccessibilityKey)) key.SetValue("CursorSize", 1, RegistryValueKind.DWord);
-        SetRuntimeCursorBaseSize(32, true);
-        Reload(); ApplyNativeCursorSizes(); NotifyCursorSettings();
+        SystemSizeUsed = !CanAdjustSize; SizeAdjustmentFailed = false;
+        int originalRuntime = RuntimeCursorBaseSize();
+        var oldBase = Capture(CursorKey,"CursorBaseSize");
+        var oldAccessibility = Capture(AccessibilityKey,"CursorSize");
+        Action systemSize = delegate {
+            RestoreValue(oldBase); RestoreValue(oldAccessibility);
+            if (originalRuntime > 0 && RuntimeCursorBaseSize() != originalRuntime) {
+                SetRuntimeCursorBaseSize(originalRuntime,false);
+                if (RuntimeCursorBaseSize() != originalRuntime) throw new IOException("未能恢复原来的指针大小，请查看诊断记录。");
+            }
+            Reload(); NotifyCursorSettings();
+        };
+        if (!SystemSizeUsed)
+        {
+            bool fixedSize = TrySizePolicy(delegate {
+                SetRuntimeCursorBaseSize(32,true);
+                using (var key = Registry.CurrentUser.CreateSubKey(CursorKey)) key.SetValue("CursorBaseSize",32,RegistryValueKind.DWord);
+                using (var key = Registry.CurrentUser.CreateSubKey(AccessibilityKey)) key.SetValue("CursorSize",1,RegistryValueKind.DWord);
+                Reload();
+                try { ApplyNativeCursorSizes(); }
+                catch (IOException ex) { throw new SizeAdjustmentException(ex.Message,ex); }
+                NotifyCursorSettings();
+            },systemSize);
+            SystemSizeUsed = SizeAdjustmentFailed = !fixedSize;
+        }
+        else { Reload(); ApplyNativeCursorSizes(); NotifyCursorSettings(); SystemSizeUsed=false; }
     }
+    static void RestoreValue(XElement element)
+    {
+        using (var key = Registry.CurrentUser.CreateSubKey((string)element.Attribute("path")))
+        {
+            string name=(string)element.Attribute("name");
+            if (!(bool)element.Attribute("exists")) { key.DeleteValue(name,false); return; }
+            var kind=(RegistryValueKind)Enum.Parse(typeof(RegistryValueKind),(string)element.Attribute("kind"));
+            object value=element.Value;
+            if(kind==RegistryValueKind.DWord)value=int.Parse(element.Value,System.Globalization.CultureInfo.InvariantCulture);
+            key.SetValue(name,value,kind);
+        }
+    }
+
     static void Reload()
     {
         // SPI_SETCURSORS reloads the saved scheme. It must use zero update flags.
@@ -564,9 +617,15 @@ internal static class Setup
             }
         }
         int originalSize = (int?)document.Root.Attribute("runtimeCursorBaseSize") ?? 0;
-        if (originalSize > 0) SetRuntimeCursorBaseSize(originalSize, true);
-        Reload(); ApplyNativeCursorSizes(); NotifyCursorSettings();
+        if (originalSize > 0 && CanAdjustSize) SetRuntimeCursorBaseSize(originalSize, true);
+        Reload(); if (CanAdjustSize) ApplyNativeCursorSizes(); NotifyCursorSettings();
     }
+}
+
+internal sealed class SizeAdjustmentException : IOException
+{
+    internal SizeAdjustmentException(string message) : base(message) { }
+    internal SizeAdjustmentException(string message,Exception inner) : base(message,inner) { }
 }
 
 internal class PrototypeWindow : Form
@@ -668,12 +727,12 @@ internal sealed class CatPicker : PrototypeWindow
     readonly FlowLayoutPanel cats = new FlowLayoutPanel();
     readonly AntButton[] catButtons;
     readonly AntButton[] sizes = new AntButton[3];
-    readonly int[] pixels = {25,35,45};
+    readonly int[] pixels = {35,45,55};
     readonly AntButton apply = new AntButton { Text="应用指针", Primary=true, DialogResult=DialogResult.OK };
     readonly AntButton applyAll = new AntButton { Quiet=true };
     int selected;
     readonly float scale;
-    internal CatPicker(XDocument catalog) : this(catalog,null,35) { }
+    internal CatPicker(XDocument catalog) : this(catalog,null,45) { }
     internal CatPicker(XDocument catalog, int[] initial, int size)
     {
         var entries = new System.Collections.Generic.List<XElement>(catalog.Root.Elements("cat"));
@@ -703,7 +762,7 @@ internal sealed class CatPicker : PrototypeWindow
             row.Click+=delegate {Choices[index]=Choices[index]==selected?-1:selected;RefreshChoices();};assignments[i]=row;Controls.Add(row);
         }
         Controls.Add(new Label {Text="指针大小",AutoSize=true,Left=36,Top=508,Font=new Font(Font.FontFamily,9.75f),ForeColor=Color.FromArgb(102,93,116)});
-        var segment=new SegmentPanel();segment.SetBounds(102,498,147,38);Controls.Add(segment);
+        var segment=new SegmentPanel();segment.SetBounds(102,498,147,38);segment.Visible=true;Controls.Add(segment);
         for(int i=0;i<3;i++)
         {
             int index=i;var button=new AntButton {Text=new[]{"小","中","大"}[i],Segment=true,Font=new Font(Font.FontFamily,9.75f)};
@@ -745,7 +804,7 @@ internal sealed class CatPicker : PrototypeWindow
         }
         applyAll.PerformClick();if(Array.Exists(Choices,c=>c!=1)||applyAll.Enabled)throw new IOException("整套使用状态错误");
         assignments[0].PerformClick();if(Choices[0]!=-1||!applyAll.Enabled)throw new IOException("取消单项失败");
-        Array.Copy(defaults,Choices,8);ChosenPixels=35;selected=0;RefreshChoices();
+        Array.Copy(defaults,Choices,8);ChosenPixels=45;selected=0;RefreshChoices();
         using(var returned=new CatPicker(XDocument.Parse("<cats defaults='0,0,0,0,0,0,0,0'><cat name='银渐层'/><cat name='三花'/><cat name='狸花猫'/><cat name='德文'/></cats>"),new[]{0,1,0,0,0,0,0,0},45))
             if(returned.Choices[1]!=1||returned.ChosenPixels!=45)throw new IOException("返回调整丢失设置");
     }
@@ -772,7 +831,7 @@ internal sealed class SegmentPanel : Panel
 internal sealed class InstallerWindow : PrototypeWindow
 {
     readonly Color Ink = Color.FromArgb(41, 36, 57), Muted = Color.FromArgb(102, 93, 116), Accent = Color.FromArgb(101, 65, 138);
-    readonly Label title = new Label(), subtitle = new Label(), step = new Label(), percent = new Label();
+    readonly Label title = new Label(), subtitle = new Label(), step = new Label(), percent = new Label(), sizeNotice = new Label();
     readonly Panel loading = new SmoothPanel(), scenarios = new Panel();
     readonly Button done = new AntButton { Primary = true }, back = new AntButton { Plain = true, Leading = true };
 
@@ -801,6 +860,7 @@ internal sealed class InstallerWindow : PrototypeWindow
         subtitle.SetBounds(36, 70, 776, 26); subtitle.ForeColor = Muted;
         subtitle.Text = restoring ? "正在恢复安装前的鼠标方案" : "正在为所选场景应用鼠标指针。";
         Controls.Add(title); Controls.Add(subtitle); subtitle.Visible=restoring;
+        sizeNotice.BackColor=Color.FromArgb(245,243,247);sizeNotice.ForeColor=Muted;sizeNotice.Padding=new Padding(12,9,8,4);sizeNotice.Visible=false;Controls.Add(sizeNotice);
         using (var stream = Setup.Resource("runner"))
         using (var original = Image.FromStream(stream)) runner = ResizePicture(original, D(94), true);
         loading.SetBounds(36, 123, 776, 150); loading.Paint += DrawLoading; Controls.Add(loading);
@@ -950,10 +1010,19 @@ internal sealed class InstallerWindow : PrototypeWindow
                 try { Setup.Restore(); rollback = "\n已恢复安装前的鼠标设置。"; }
                 catch (Exception recovery) { rollback = "\n恢复也未完成：" + recovery.Message; }
             }
-            title.Text = "小猫暂时没能就位"; subtitle.Text = "请查看下面的原因，再重新运行。";
-            step.Text = ex.Message + rollback; step.Height = D(90); step.Width = D(590);
-            ClientSize = new Size(D(850), D(504)); done.SetBounds(D(518), D(444), D(108), D(40)); done.Visible = true;
+            ShowFailure(ex,rollback);
         }
+    }
+    internal void ShowFailure(Exception ex,string rollback)
+    {
+        timer.Stop();working=false;Setup.LogError(ex);
+        loading.Visible=false;percent.Visible=false;scenarios.Visible=false;sizeNotice.Visible=false;back.Visible=false;
+        foreach(Control control in Controls.Find("InstallingStatus",true))control.Visible=false;
+        foreach(Control control in Controls.Find("PrototypeClose",true))control.Visible=true;
+        title.Text="小猫暂时没能就位";subtitle.Text="请查看原因后重试。";subtitle.Visible=true;
+        step.Text=ex.Message+rollback+"\n\n诊断记录："+Path.Combine(Setup.Root,"diagnostic.log");
+        step.SetBounds(D(36),D(180),D(776),D(190));step.Visible=true;step.BringToFront();
+        ClientSize=new Size(D(850),D(450));done.SetBounds(D(720),D(386),D(92),D(42));done.Visible=true;
     }
     void FinishRestore()
     {
@@ -969,15 +1038,17 @@ internal sealed class InstallerWindow : PrototypeWindow
         var close=Controls.Find("PrototypeClose",true);if(close.Length>0)close[0].Visible=true;
         var installing=Controls.Find("InstallingStatus",true);if(installing.Length>0)installing[0].Visible=false;
         title.Text="小猫已就位";subtitle.Text="移动鼠标，试试小猫。";subtitle.Visible=true;subtitle.Font=new Font(Font.FontFamily,10.5f);
+        sizeNotice.Visible=Setup.SystemSizeUsed;
+        sizeNotice.Text=Setup.SizeResultText;sizeNotice.SetBounds(D(36),D(171),D(776),D(42));
         while(scenarios.Controls.Count>0)scenarios.Controls[0].Dispose();BuildScenarios();
-        int rows=(scenarios.Controls.Count+1)/2;scenarios.Top=D(180);scenarios.Height=D(rows*78);
+        int rows=(scenarios.Controls.Count+1)/2;scenarios.Top=D(Setup.SystemSizeUsed?226:180);scenarios.Height=D(rows*78);
         done.Top=back.Top=scenarios.Bottom+D(31);ClientSize=new Size(D(850),done.Bottom+D(22));
         scenarios.Visible=true;done.Visible=true;back.Visible=true;
     }
     internal void Preview(){Finish();}
     internal void VerifySizePreviews()
     {
-        foreach(int pixels in new[]{25,45,35})
+        foreach(int pixels in new[]{35,55,45})
         {
             Setup.PrepareSize(pixels);Finish();Application.DoEvents();
             foreach(Control card in scenarios.Controls)
@@ -990,6 +1061,35 @@ internal sealed class InstallerWindow : PrototypeWindow
             using(var bitmap=new Bitmap(Width,Height)){DrawToBitmap(bitmap,new Rectangle(Point.Empty,Size));bitmap.Save(Path.Combine(Setup.Root,"preview-"+pixels+".png"));}
         }
         File.WriteAllText(Path.Combine(Setup.Root,"display-check.txt"),"Picker draft sizing, accepted settings, cursor handles and centered trial previews verified. No system pointer settings changed.");
+    }
+    internal void VerifyCompatibilityStates()
+    {
+        bool fixedCalled=false,systemCalled=false;
+        if(!Setup.TrySizePolicy(delegate{fixedCalled=true;},delegate{systemCalled=true;})||!fixedCalled||systemCalled)throw new IOException("支持大小调整的流程错误");
+        systemCalled=false;
+        if(Setup.TrySizePolicy(delegate{throw new SizeAdjustmentException("模拟大小调整失败");},delegate{systemCalled=true;})||!systemCalled)throw new IOException("大小失败未降级");
+        bool propagated=false;
+        try{Setup.TrySizePolicy(delegate{throw new IOException("模拟皮肤损坏");},delegate{throw new Exception("不应降级");});}catch(IOException){propagated=true;}
+        if(!propagated)throw new IOException("皮肤错误被吞掉");
+        try {
+            Setup.SizeCapabilityOverride=false;
+            using(var stream=Setup.Resource("cats"))
+            using(var picker=new CatPicker(XDocument.Load(stream))) {
+                picker.Show();Application.DoEvents();bool found=false;
+                foreach(Control control in picker.Controls)if(control.Text=="指针大小随系统")found=control.Visible;
+                if(found)throw new IOException("不应显示跟随系统说明");
+                foreach(Control control in picker.Controls)if(control is SegmentPanel && !control.Visible)throw new IOException("旧系统尺寸控件被隐藏");
+                using(var image=new Bitmap(picker.Width,picker.Height)){picker.DrawToBitmap(image,new Rectangle(Point.Empty,picker.Size));image.Save(Path.Combine(Setup.Root,"picker-system-size.png"));}
+            }
+            Setup.SystemSizeUsed=true;Setup.SizeAdjustmentFailed=true;Finish();Application.DoEvents();
+            if(!sizeNotice.Visible||!sizeNotice.Text.Contains("未能固定显示大小")||sizeNotice.Bottom>scenarios.Top)throw new IOException("结果页大小提示不可见或重叠");
+            using(var image=new Bitmap(Width,Height)){DrawToBitmap(image,new Rectangle(Point.Empty,Size));image.Save(Path.Combine(Setup.Root,"result-size-fallback.png"));}
+            ShowFailure(new IOException("模拟皮肤文件无法加载"),"");Application.DoEvents();
+            if(!step.Visible||loading.Visible||!step.Text.Contains("模拟皮肤文件无法加载"))throw new IOException("错误详情不可见");
+            using(var image=new Bitmap(Width,Height)){DrawToBitmap(image,new Rectangle(Point.Empty,Size));image.Save(Path.Combine(Setup.Root,"failure-details.png"));}
+        }
+        finally{Setup.SizeCapabilityOverride=null;Setup.SystemSizeUsed=false;Setup.SizeAdjustmentFailed=false;Finish();}
+        File.WriteAllText(Path.Combine(Setup.Root,"compatibility-passed.txt"),"Read-only capability UI, size-only fallback policy, genuine errors propagated, result notice and visible error details verified. No system mouse settings changed.");
     }
     internal void PreviewLoading() { working = false; progress = 55; step.Text = "备份原鼠标"; percent.Text = "55%"; }
     void BuildScenarios()

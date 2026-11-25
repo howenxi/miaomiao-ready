@@ -78,7 +78,7 @@ public static class CursorEncoder
     }
     public static void ConvertPixels(string sourcePath, string cursorPath, int hotX, int hotY, int pixels)
     {
-        if (pixels < 20 || pixels > 48) throw new ArgumentOutOfRangeException("pixels");
+        if (pixels < 20 || pixels > 55) throw new ArgumentOutOfRangeException("pixels");
         Encode(sourcePath, cursorPath, hotX, hotY, pixels / 62f, new int[] {64});
     }
     static void Encode(string sourcePath, string cursorPath, int hotX, int hotY, float contentScale, int[] sizes)
@@ -136,3 +136,4 @@ public static class CursorEncoder
         }
     }
 }
+
